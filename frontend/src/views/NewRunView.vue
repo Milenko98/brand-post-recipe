@@ -76,13 +76,17 @@ async function submit() {
 </script>
 
 <template>
-  <RouterLink to="/" class="text-sm text-stone-500 hover:text-dragon">← Sva pokretanja</RouterLink>
-  <div class="mb-6 flex items-center justify-between">
-    <h1 class="font-display text-3xl">Brifing</h1>
-    <button class="btn-ghost" type="button" @click="prefillExample">Popuni primjerom (Zmajska)</button>
+  <!-- Same layout as a run: the header stays in place, only the form scrolls -->
+  <div class="flex h-[calc(100dvh-8rem)] flex-col">
+  <div class="mb-4 shrink-0 border-b border-stone-200 pb-4">
+    <RouterLink to="/" class="text-sm text-stone-500 hover:text-dragon">← Sva pokretanja</RouterLink>
+    <div class="flex items-center justify-between">
+      <h1 class="font-display text-3xl">Brifing</h1>
+      <button class="btn-ghost" type="button" @click="prefillExample">Popuni primjerom (Zmajska)</button>
+    </div>
   </div>
 
-  <form class="grid gap-6 lg:grid-cols-2" @submit.prevent="submit">
+  <form class="grid min-h-0 flex-1 gap-6 overflow-y-auto pr-2 pb-6 lg:grid-cols-2 lg:items-start" @submit.prevent="submit">
     <div class="card space-y-4">
       <h2 class="font-semibold">Brend</h2>
       <div><label class="label">Naziv brenda</label><input v-model="form.brand" class="input" required /></div>
@@ -132,4 +136,5 @@ async function submit() {
       </button>
     </div>
   </form>
+  </div>
 </template>
