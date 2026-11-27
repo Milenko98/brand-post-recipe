@@ -1,0 +1,13 @@
+.env
+runs/
+__pycache__/
+*.pyc
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+.idea/
+.vscode/
+
+# Instagram content of the demo brand (copyright) - kept locally, not published
+inputs/zmajska/posts/
+inputs/zmajska/captions.txt

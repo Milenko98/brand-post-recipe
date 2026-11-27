@@ -1,0 +1,66 @@
+# Brief for the demonstration run (answers to the briefing questions).
+# Paths are relative to this file.
+
+brand: Zmajska pivovara
+instagram: https://www.instagram.com/zmajskapivovara/
+website: https://zmajskapivovara.hr/
+extra_urls:
+  - https://zmajskapivovara.hr/o-nama/
+  - https://shop.zmajskapivovara.hr/kategorija-proizvoda/pivo/stalna-ponuda/
+  - https://shop.zmajskapivovara.hr/proizvod/pale-ale/
+  - https://shop.zmajskapivovara.hr/proizvod/pozoj-limenka-05l/
+  - https://shop.zmajskapivovara.hr/proizvod/berry-sour-limenka-05l/
+  - https://shop.zmajskapivovara.hr/proizvod/pils/
+  - https://zmajskapivovara.hr/taproom-3/
+
+products:
+  - name: Pale Ale
+    image: products/pale_ale.png
+    notes: boca 0,33 L, narančasta etiketa
+  - name: Pozoj IPA
+    image: products/pozoj_ipa.png
+    notes: limenka 0,5 L, zelena etiketa
+  - name: Berry Sour
+    image: products/berry_sour.png
+    notes: limenka 0,5 L, ljubičasta etiketa
+  - name: Pils Craft Lager
+    image: products/pils.png
+    notes: boca 0,5 L, plava etiketa
+
+audience: >
+  Odrasli 25-45, urbani, uglavnom Zagreb i veći gradovi u Hrvatskoj. Ljubitelji craft piva,
+  ali i oni koji craft tek otkrivaju i žele nešto bolje od industrijskog lagera.
+  Druže se u pubovima i na koncertima, cijene humor i lokalne priče.
+
+goals:
+  - Podsjetiti na stalnu ponudu (Pale Ale, Pozoj IPA, Berry Sour, Pils) i potaknuti kupnju u webshopu ili trgovini
+  - Više komentara i spremanja objava (engagement)
+  - Edukacija - približiti stilove craft piva ljudima koji ih ne poznaju
+
+inspiration: >
+  Vlastiti event posteri brenda (jarke ravne boje, zmaj, krupna zbijena slova), fotografije
+  iz SIP puba i taproom-a, duhoviti opisi s igrama riječi.
+
+constraints:
+  - Odgovorna komunikacija alkohola - bez obraćanja maloljetnicima, bez poticanja prekomjernog pijenja, bez zdravstvenih tvrdnji
+  - Ne izmišljati cijene, popuste, nagrade ni događaje
+  - Etiketa, limenka/boca i logo moraju ostati točni
+
+language: hr
+logo: logo.png
+captions_file: captions.txt
+post_screenshots:
+  - posts/post_01.jpg
+  - posts/post_02.jpg
+  - posts/post_03.jpg
+  - posts/post_04.jpg
+  - posts/post_05.jpg
+  - posts/post_06.jpg
+  - posts/post_07.jpg
+  - posts/post_08.jpg
+  - posts/post_09.jpg
+  - posts/post_10.jpg
+  - posts/post_11.jpg
+  - posts/post_12.jpg
+  - posts/post_13.jpg
+  - posts/post_14.jpg
