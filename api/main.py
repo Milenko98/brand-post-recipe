@@ -6,6 +6,8 @@ restart at any time and runs continue from the last finished phase.
 """
 
 import json
+import os
+import socket
 import tempfile
 import threading
 from pathlib import Path
@@ -59,12 +61,25 @@ def run_in_background(run: Run, fn) -> None:
     threading.Thread(target=target, daemon=True).start()
 
 
+def _worker_is_dead(worker: dict | None) -> bool:
+    if not worker or worker.get("host") != socket.gethostname():
+        return False
+    try:
+        os.kill(worker["pid"], 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return worker["pid"] == os.getpid()  # alive and it is us, but not in _active: the thread is gone
+
+
 def run_payload(run: Run) -> dict:
     state = run.state
-    # A phase marked "running" with no worker means the server was restarted mid-phase
+    # A phase this container started that has no live worker any more was cut off by a server restart.
+    # Phases run by the CLI (another container) are left alone.
     if run.id not in _active:
         for phase, info in state["phases"].items():
-            if info["status"] == "running":
+            if info["status"] == "running" and _worker_is_dead(info.get("worker")):
                 run.set_phase(phase, "failed", error="Interrupted (server restarted) - run the phase again")
         state = run.state
 

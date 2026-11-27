@@ -12,6 +12,8 @@ can be resumed from any phase after a crash or after a human edits a JSON file.
 """
 
 import json
+import os
+import socket
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -86,6 +88,9 @@ class Run:
             entry.update(extra)
             if status == "running":
                 entry["started"] = now()
+                # Which process runs the phase (the CLI and the API run in different containers)
+                entry["worker"] = {"host": socket.gethostname(), "pid": os.getpid()}
+            if status in ("running", "done"):
                 entry.pop("error", None)
             if status in ("done", "failed"):
                 entry["finished"] = now()

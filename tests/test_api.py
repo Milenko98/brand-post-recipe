@@ -125,3 +125,23 @@ def test_upload_requires_one_photo_per_product(client):
     files = [("logo", ("l.png", b"x", "image/png")), ("products", ("p.png", b"x", "image/png"))]
     response = client.post("/api/runs", data={"brief": json.dumps(brief)}, files=files)
     assert response.status_code == 422
+
+
+def test_only_phases_of_this_container_are_marked_interrupted(client, settings):
+    import socket
+
+    from recipe.store import Run
+
+    run_id = client.post("/api/runs/example").json()["id"]
+    wait_idle(client, run_id)
+    run = Run.load(settings.runs_dir, run_id)
+
+    # Running in the CLI container: must stay "running"
+    run.set_phase("analysis", "running")
+    run.update(lambda s: s["phases"]["analysis"].__setitem__("worker", {"host": "cli-container", "pid": 1}))
+    assert client.get(f"/api/runs/{run_id}").json()["phases"]["analysis"]["status"] == "running"
+
+    # Started here by a process that no longer exists (server restart): marked failed
+    run.update(lambda s: s["phases"]["analysis"].__setitem__("worker", {"host": socket.gethostname(), "pid": 999999}))
+    phase = client.get(f"/api/runs/{run_id}").json()["phases"]["analysis"]
+    assert phase["status"] == "failed" and "Interrupted" in phase["error"]
