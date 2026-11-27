@@ -299,7 +299,8 @@ def phase_deliver(run: Run, services: Services, note: str | None) -> DeliverResu
 
     usage = run.state["usage"]
     summary.append(f"\n---\nCost of this run: ${usage['cost_usd']:.2f} "
-                   f"({usage['claude_input_tokens']:,} in / {usage['claude_output_tokens']:,} out Claude tokens, "
+                   f"(Claude ${usage.get('claude_cost_usd', 0):.2f}: {usage['claude_input_tokens']:,} input and "
+                   f"{usage['claude_output_tokens']:,} output tokens; Gemini ${usage.get('gemini_cost_usd', 0):.2f}: "
                    f"{usage['images']} generated images)\n")
     (final / "README.md").write_text("\n".join(summary))
 
@@ -365,6 +366,49 @@ def render_slide(run: Run, services: Services, brief: Brief, analysis: BrandAnal
                         final_file=run.rel(final_path), feedback=feedback)
 
 
+# Fields that change what the image model has to draw; everything else is composited by Pillow
+SCENE_FIELDS = ("scene_prompt", "background")
+
+
+def scenes_still_valid(old: ContentPlan, new: ContentPlan) -> bool:
+    """True when an edited plan can reuse the generated scenes (only texts, layout, products or captions changed)."""
+    if len(old.posts) != len(new.posts):
+        return False
+    for a, b in zip(old.posts, new.posts):
+        if len(a.slides) != len(b.slides):
+            return False
+        for sa, sb in zip(a.slides, b.slides):
+            if any(getattr(sa, f) != getattr(sb, f) for f in SCENE_FIELDS):
+                return False
+    return True
+
+
+def recompose(run: Run) -> CreateResult:
+    """Re-composite every slide from its saved AI scene with the current plan. No API calls, no cost.
+
+    Used after a human edits headlines, product placement or captions, and after compositing fixes.
+    Review and delivery have to run again, because the slides changed.
+    """
+    if run.state["phases"]["create"]["status"] != "done":
+        raise RuntimeError("Slides can be re-composited only after the create phase")
+    brief = run.read("brief", BriefResult).brief
+    plan = run.read("plan", ContentPlan)
+    created = run.read("create", CreateResult)
+    inputs = run.path / "inputs"
+    for post, made in zip(plan.posts, created.posts):
+        for slide, made_slide in zip(post.slides, made.slides):
+            product = find_product(brief, slide.product) if slide.product else None
+            for attempt in made_slide.attempts:
+                image = compose_slide(Image.open(run.path / attempt.scene_file), slide,
+                                      inputs / product.image if product else None, inputs / brief.logo)
+                image.save(run.path / attempt.final_file, optimize=True)
+                attempt.score = None
+    run.save("create", created)
+    run.invalidate_from("review")
+    run.log("Slides re-composited from saved scenes (no new images)")
+    return created
+
+
 def scene_text(slide: Slide, analysis: BrandAnalysis, feedback: str) -> str:
     style = analysis.photography_style if slide.background == "photo" else analysis.graphic_style
     colors = ", ".join(f"{c.name} {c.hex}" for c in analysis.colors[:6])
@@ -382,6 +426,9 @@ def review_post(run: Run, services: Services, brief: Brief, analysis: BrandAnaly
         text_block(f"## Brand\n{analysis.summary}\nTone: {analysis.tone_of_voice}\n"
                    f"Colors: {', '.join(c.hex + ' ' + c.name for c in analysis.colors)}"),
         text_block("## Verified facts\n" + "\n".join(f"- {f}" for f in facts)),
+        # The website text itself, so claims taken from it are not flagged as invented
+        text_block("## Official website text (also a verified source)\n" + "\n\n".join(
+            f"### {s.url}\n{s.text[:2500]}" for s in run.read("brief", BriefResult).sources if s.ok)),
         text_block(f"## Planned post {post.number}\n" + post.model_dump_json(indent=2, exclude={"slides"})),
     ]
     used = {s.product for s in post.slides if s.product}

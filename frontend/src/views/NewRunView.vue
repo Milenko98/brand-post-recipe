@@ -76,6 +76,7 @@ async function submit() {
 </script>
 
 <template>
+  <RouterLink to="/" class="text-sm text-stone-500 hover:text-dragon">← Sva pokretanja</RouterLink>
   <div class="mb-6 flex items-center justify-between">
     <h1 class="font-display text-3xl">Brifing</h1>
     <button class="btn-ghost" type="button" @click="prefillExample">Popuni primjerom (Zmajska)</button>

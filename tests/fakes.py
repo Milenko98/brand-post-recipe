@@ -16,7 +16,8 @@ class FakeClaude:
     def structured(self, *, system, content, schema, effort="high", on_usage=None):
         self.calls.append({"schema": schema.__name__, "content": content, "effort": effort})
         if on_usage:
-            on_usage(claude_input_tokens=1000, claude_output_tokens=200, claude_cache_read_tokens=0, cost_usd=0.008)
+            on_usage(claude_input_tokens=1000, claude_output_tokens=200, claude_cache_read_tokens=0,
+                     claude_cost_usd=0.008, cost_usd=0.008)
         if schema is BrandAnalysis:
             return analysis()
         if schema is ContentPlan:
@@ -33,7 +34,7 @@ class FakeGemini:
     def generate(self, prompt, *, references=(), aspect_ratio="4:5", images_so_far=0, on_usage=None):
         self.prompts.append(prompt)
         if on_usage:
-            on_usage(images=1, cost_usd=0.05)
+            on_usage(images=1, gemini_cost_usd=0.05, cost_usd=0.05)
         buf = io.BytesIO()
         Image.new("RGB", (928, 1152), (60, 40, 30)).save(buf, "PNG")
         return buf.getvalue()

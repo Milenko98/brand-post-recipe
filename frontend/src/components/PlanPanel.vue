@@ -3,6 +3,9 @@ import { ref, watch } from 'vue';
 import { api } from '../api';
 
 const props = defineProps({ run: Object, data: Object });
+
+const BACKGROUND = { photo: 'fotografija', graphic: 'grafika' };
+const POSITION = { left: 'lijevo', center: 'sredina', right: 'desno' };
 const emit = defineEmits(['saved']);
 
 // Local editable copy of the plan; saving it invalidates image generation
@@ -53,8 +56,9 @@ async function save() {
           <input v-model="s.headline" class="input mb-2" />
           <label class="label">Podnaslov</label>
           <input v-model="s.subline" class="input mb-2" />
-          <label class="label">Scena ({{ s.background }}) · proizvod: {{ s.product || '—' }}, {{ s.product_position }}</label>
-          <textarea v-model="s.scene_prompt" class="input h-28 font-mono text-[11px]" />
+          <label class="label">Scena ({{ BACKGROUND[s.background] }}) · proizvod: {{ s.product || '—' }}, {{ POSITION[s.product_position] }}</label>
+          <p class="mb-1 text-xs text-stone-500">Opis scene za generator slika ostaje na engleskom jer ga model tako najbolje razumije.</p>
+          <textarea v-model="s.scene_prompt" class="input h-28 font-mono text-xs" />
         </div>
       </div>
 
@@ -66,7 +70,7 @@ async function save() {
     </div>
 
     <div v-if="dirty || error" class="sticky bottom-4 card flex items-center justify-between gap-4 ring-2 ring-dragon">
-      <span class="text-sm">{{ error || 'Imaš nespremljene izmjene plana. Spremanje poništava izradu i provjeru.' }}</span>
+      <span class="text-sm">{{ error || 'Imaš nespremljene izmjene plana. Promjene teksta i opisa su besplatne (slajdovi se ponovno slože iz postojećih scena); promjena opisa scene traži nove slike.' }}</span>
       <button class="btn-primary" :disabled="run.busy" @click="save">Spremi izmjene</button>
     </div>
   </div>

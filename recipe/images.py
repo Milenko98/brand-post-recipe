@@ -47,7 +47,8 @@ class Gemini:
             response_format={"type": "image", "aspect_ratio": aspect_ratio, "image_size": self.size},
         )
         if on_usage:
-            on_usage(images=1, cost_usd=PRICES["image"].get(self.size, 0.05))
+            cost = PRICES["image"].get(self.size, 0.05)
+            on_usage(images=1, gemini_cost_usd=cost, cost_usd=cost)
 
         image = getattr(interaction, "output_image", None)
         if image is None or not image.data:

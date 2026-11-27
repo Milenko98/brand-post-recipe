@@ -10,4 +10,6 @@ For every slide check:
 - `score`: 1-10 overall. 8+ means ready to publish.
 - `scene_fix`: only if the problem is in the generated background (wrong surface, perspective, clutter, fake text/products, wrong mood), write concrete changes for the scene prompt. Leave empty if the slide is fine or if regenerating the background would not help.
 
-For the caption check invented facts (anything not in the verified facts), prices, claims about real people, health claims, appeal to minors, and tone mismatch. Return `revised_caption` with only the necessary corrections (keep it unchanged if it is fine).
+Write `issues` and `caption_issues` in Croatian (the client reads them). Write `scene_fix` in English, because it goes into the image model prompt.
+
+For the caption check invented facts (anything supported by neither the verified facts nor the official website text), prices, claims about real people, health claims, appeal to minors, and tone mismatch. Return `revised_caption` with only the necessary corrections (keep it unchanged if it is fine).

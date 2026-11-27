@@ -49,7 +49,7 @@ class Run:
             "phases": {p: {"status": "pending"} for p in PHASES},
             "notes": {},
             "usage": {"claude_input_tokens": 0, "claude_output_tokens": 0, "claude_cache_read_tokens": 0,
-                      "images": 0, "cost_usd": 0.0},
+                      "images": 0, "claude_cost_usd": 0.0, "gemini_cost_usd": 0.0, "cost_usd": 0.0},
             "log": [],
         })
         return run

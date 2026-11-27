@@ -5,6 +5,10 @@
     --color-dragon: #e8641b;
 }
 
+html {
+    font-size: 17.5px;
+}
+
 @font-face {
     font-family: "Anton";
     src: url("/fonts/Anton-Regular.ttf") format("truetype");

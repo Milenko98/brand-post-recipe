@@ -85,4 +85,4 @@ class Claude:
         cached = getattr(usage, "cache_read_input_tokens", 0) or 0
         cost = (inp * price["input"] + out * price["output"] + cached * price["cache_read"]) / 1_000_000
         return {"claude_input_tokens": inp, "claude_output_tokens": out,
-                "claude_cache_read_tokens": cached, "cost_usd": cost}
+                "claude_cache_read_tokens": cached, "claude_cost_usd": cost, "cost_usd": cost}

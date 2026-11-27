@@ -65,20 +65,40 @@ def test_cannot_skip_phases_or_escape_run_folder(client):
     assert client.get("/api/runs/nope").status_code == 404
 
 
-def test_edit_plan_invalidates_later_phases(client):
+def test_text_edit_reuses_scenes_and_scene_edit_regenerates(client):
     run_id = client.post("/api/runs/example").json()["id"]
     wait_idle(client, run_id)
     client.post(f"/api/runs/{run_id}/continue")
-    wait_idle(client, run_id)
+    images_before = wait_idle(client, run_id)["usage"]["images"]
 
+    # Headline and caption edits: slides are re-composited from the saved scenes, no new images
     edited = plan().model_dump()
     edited["posts"][0]["caption"] = "Ručno uređeno"
-    data = client.put(f"/api/runs/{run_id}/plan", json=edited).json()
+    edited["posts"][0]["slides"][0]["headline"] = "Novi naslov"
+    response = client.put(f"/api/runs/{run_id}/plan", json=edited).json()
+    assert response["recomposed"] is True
+    data = wait_idle(client, run_id)
     assert data["outputs"]["plan"]["posts"][0]["caption"] == "Ručno uređeno"
-    assert data["phases"]["create"]["status"] == "pending"
+    assert data["phases"]["create"]["status"] == "done"
+    assert data["phases"]["review"]["status"] == "pending"
+    assert data["usage"]["images"] == images_before
+
+    # A new scene prompt needs a new image
+    edited["posts"][0]["slides"][0]["scene_prompt"] = "A rooftop terrace at sunset"
+    response = client.put(f"/api/runs/{run_id}/plan", json=edited).json()
+    assert response["recomposed"] is False and response["phases"]["create"]["status"] == "pending"
 
     edited["posts"] = edited["posts"][:2]
     assert client.put(f"/api/runs/{run_id}/plan", json=edited).status_code == 422
+
+
+def test_usage_is_split_between_claude_and_gemini(client):
+    run_id = client.post("/api/runs/example").json()["id"]
+    wait_idle(client, run_id)
+    client.post(f"/api/runs/{run_id}/continue")
+    usage = wait_idle(client, run_id)["usage"]
+    assert usage["gemini_cost_usd"] > 0
+    assert abs(usage["claude_cost_usd"] + usage["gemini_cost_usd"] - usage["cost_usd"]) < 1e-6
 
 
 def test_create_run_from_uploads(client):

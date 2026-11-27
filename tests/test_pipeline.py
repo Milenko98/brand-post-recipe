@@ -131,3 +131,20 @@ def test_missing_optional_inputs_are_skipped(settings, fakes, example_brief):
     result = run.read("brief", BriefResult)
     assert result.brief.post_screenshots == [] and result.captions == ""
     assert any("skipped" in line for line in run.state["log"])
+
+
+def test_recompose_reuses_scenes_without_api_calls(settings, fakes, example_brief):
+    from recipe.pipeline import recompose
+
+    services, claude, gemini = fakes
+    run = start_run(example_brief, settings)
+    run_pipeline(run, services)
+    calls = (len(claude.calls), len(gemini.prompts), run.state["usage"]["images"])
+
+    recompose(run)
+
+    assert (len(claude.calls), len(gemini.prompts), run.state["usage"]["images"]) == calls
+    assert run.state["phases"]["create"]["status"] == "done"
+    assert run.state["phases"]["review"]["status"] == "pending"
+    created = run.read("create", CreateResult)
+    assert all(a.score is None for p in created.posts for s in p.slides for a in s.attempts)

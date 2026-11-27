@@ -9,12 +9,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <header class="bg-stone-900 text-white">
-    <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+  <header class="sticky top-0 z-30 bg-stone-900 text-white">
+    <div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
       <RouterLink to="/" class="font-display text-2xl tracking-wide">
         BRAND POST <span class="text-dragon">RECIPE</span>
       </RouterLink>
-      <div v-if="health" class="flex gap-3 text-xs">
+      <div v-if="health" class="flex gap-3 text-sm">
         <span :class="health.claude ? 'text-emerald-400' : 'text-red-400'">● Claude {{ health.claude_model }}</span>
         <span :class="health.gemini ? 'text-emerald-400' : 'text-red-400'">● Gemini {{ health.image_model }}</span>
       </div>

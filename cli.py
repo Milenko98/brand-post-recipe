@@ -4,6 +4,7 @@
     python cli.py new inputs/zmajska/brief.yaml --stop-after plan
     python cli.py resume <run_id>                               # continue from the first unfinished phase
     python cli.py resume <run_id> --from plan --note "More humor, less beer-geek jargon"
+    python cli.py recompose <run_id>                            # re-composite slides from saved scenes (free)
     python cli.py status <run_id>
     python cli.py list
 """
@@ -15,7 +16,7 @@ from pathlib import Path
 
 from recipe.config import Settings
 from recipe.llm import AIError
-from recipe.pipeline import Services, run_pipeline, start_run
+from recipe.pipeline import Services, recompose, run_pipeline, start_run
 from recipe.store import PHASES, Run
 
 
@@ -28,8 +29,10 @@ def print_status(run: Run) -> None:
         error = f"  {info['error']}" if info.get("error") else ""
         print(f"  {mark} {phase:<9} {info['status']}{error}")
     u = state["usage"]
-    print(f"  Cost so far: ${u['cost_usd']:.2f}  (Claude {u['claude_input_tokens']:,} in / "
-          f"{u['claude_output_tokens']:,} out tokens, {u['images']} images)")
+    print(f"  Cost so far: ${u['cost_usd']:.2f}")
+    print(f"    Claude  ${u.get('claude_cost_usd', 0):.2f}  ({u['claude_input_tokens']:,} input / "
+          f"{u['claude_output_tokens']:,} output tokens)")
+    print(f"    Gemini  ${u.get('gemini_cost_usd', 0):.2f}  ({u['images']} images)")
 
 
 def main() -> int:
@@ -46,6 +49,9 @@ def main() -> int:
     resume.add_argument("--stop-after", choices=PHASES)
     resume.add_argument("--note", help="feedback for the re-run phase, e.g. what to change in the plan")
 
+    again = sub.add_parser("recompose", help="re-composite slides from saved AI scenes after a text/layout change (no API cost)")
+    again.add_argument("run_id")
+
     status = sub.add_parser("status")
     status.add_argument("run_id")
     sub.add_parser("list")
@@ -59,6 +65,13 @@ def main() -> int:
             run = Run(path.parent)
             done = sum(p["status"] == "done" for p in run.state["phases"].values())
             print(f"{run.id}  {done}/{len(PHASES)} phases")
+        return 0
+
+    if args.command == "recompose":
+        run = Run.load(settings.runs_dir, args.run_id)
+        recompose(run)
+        print_status(run)
+        print(f"\nRun the review again: python cli.py resume {run.id}")
         return 0
 
     if args.command == "status":

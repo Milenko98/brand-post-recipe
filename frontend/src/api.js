@@ -28,6 +28,7 @@ export const api = {
     runPhase: (id, phase, note) => request('POST', `/api/runs/${id}/phases/${phase}`, { note: note || null }),
     continueRun: (id) => request('POST', `/api/runs/${id}/continue`),
     savePlan: (id, plan) => request('PUT', `/api/runs/${id}/plan`, plan),
+    recompose: (id) => request('POST', `/api/runs/${id}/recompose`),
 };
 
 export function fileUrl(runId, path, version = '') {
