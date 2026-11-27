@@ -64,3 +64,19 @@ def test_headline_never_covers_the_product():
     text_bottom = _text_layout(Image.new("RGBA", (1080, 1350)), s, True)[1]
     # The bottle is shrunk, so the strip right under the text is still the plain scene
     assert all(img.getpixel((540, y)) == color for y in range(text_bottom + 2, text_bottom + 20))
+
+
+def test_subline_is_cleaned_and_fits():
+    from PIL import ImageDraw
+    from recipe.compose import _clean_text, _text_layout
+
+    assert _clean_text("Ljestvica gorčine 🐉") == "Ljestvica gorčine"
+    assert _clean_text("NEISKUSNI - POZOR!") == "NEISKUSNI – POZOR!"
+
+    s = slide(subline="Kiselo pivo s borovnicom i malinom · ABV: 4,8% / IBU: 15 · limenka 0,5 L")
+    canvas = Image.new("RGBA", (1080, 1350))
+    _, _, _, font, sub_lines, sub_font, x = _text_layout(canvas, s, True)
+    draw = ImageDraw.Draw(canvas)
+    pad = int(font.size * 0.18)
+    assert " ".join(sub_lines).endswith("0,5 L")  # nothing cut off
+    assert all(x + draw.textlength(line, font=sub_font) + 2 * pad <= 1080 for line in sub_lines)

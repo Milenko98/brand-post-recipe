@@ -24,8 +24,9 @@ import yaml
 from PIL import Image
 from pydantic import BaseModel
 
+from .budget import MIN_CLAUDE_CALL, check_phase, ensure
 from .compose import compose_slide
-from .config import Settings
+from .config import PRICES, Settings
 from .images import Gemini, ImageBudgetExceeded
 from .llm import Claude, image_block, text_block
 from .schemas import (BrandAnalysis, Brief, BriefResult, ContentPlan, CreatedPost, CreatedSlide, CreateResult,
@@ -150,6 +151,7 @@ def phase_analysis(run: Run, services: Services, note: str | None) -> BrandAnaly
         content.append(text_block(f"## Reviewer note for this attempt\n{note}"))
 
     run.log("Claude is analysing the brand")
+    ensure(services.settings, "claude", MIN_CLAUDE_CALL, "the brand analysis")
     return services.claude.structured(system=prompt("analysis"), content=content, schema=BrandAnalysis,
                                       effort="high", on_usage=run.add_usage)
 
@@ -172,6 +174,7 @@ def phase_plan(run: Run, services: Services, note: str | None) -> ContentPlan:
         content.append(text_block(f"## Reviewer note for this attempt\n{note}"))
 
     run.log("Claude is planning three posts")
+    ensure(services.settings, "claude", MIN_CLAUDE_CALL, "the content plan")
     plan = services.claude.structured(system=prompt("plan"), content=content, schema=ContentPlan,
                                       effort="high", on_usage=run.add_usage)
     if len(plan.posts) != 3:
@@ -213,18 +216,28 @@ def phase_review(run: Run, services: Services, note: str | None) -> ReviewResult
     plan = run.read("plan", ContentPlan)
     created = run.read("create", CreateResult)
     max_retries = services.settings.max_review_retries
+    ai_plan = run.path / "03_plan.ai.json"
+    ai_captions = ({p.number: p.caption for p in ContentPlan.model_validate_json(ai_plan.read_text()).posts}
+                   if ai_plan.exists() else {})
 
     reviewed = []
     for post, made in zip(plan.posts, created.posts):
         rounds: list[PostReview] = []
         regenerated: set[int] = set()
+        # The human decides: an edited caption is checked, but QA may only suggest changes to it
+        human_caption = post.number in ai_captions and ai_captions[post.number].strip() != post.caption.strip()
+        suggested = ""
         for round_no in range(max_retries + 1):
             run.log(f"QA post {post.number}, round {round_no + 1}")
-            review = review_post(run, services, b.brief, analysis, post, made)
+            review = review_post(run, services, b.brief, analysis, post, made, human_caption)
             rounds.append(review)
             _record_scores(made, review)
-            if review.revised_caption.strip():
-                post.caption = review.revised_caption.strip()  # the next round checks the corrected caption
+            revised = review.revised_caption.strip()
+            if human_caption:
+                if revised and revised != post.caption.strip():
+                    suggested = revised
+            elif revised:
+                post.caption = revised  # the next round checks the corrected caption
 
             to_fix = [r for r in review.slides if _failed(r) and r.scene_fix and 1 <= r.slide <= len(made.slides)]
             if not to_fix or round_no == max_retries:
@@ -252,7 +265,8 @@ def phase_review(run: Run, services: Services, note: str | None) -> ReviewResult
         last = rounds[-1]
         passed = all(not _failed(r) for r in last.slides)
         reviewed.append(ReviewedPost(number=post.number, rounds=rounds, regenerated_slides=sorted(regenerated),
-                                     passed=passed, final_caption=post.caption))
+                                     passed=passed, final_caption=post.caption,
+                                     caption_edited_by_human=human_caption, suggested_caption=suggested))
 
     run.save("create", created)  # attempts + scores are part of the create history
     return ReviewResult(posts=reviewed)
@@ -268,8 +282,9 @@ def phase_deliver(run: Run, services: Services, note: str | None) -> DeliverResu
     shutil.rmtree(final, ignore_errors=True)
     final.mkdir()
 
-    summary = [f"# {b.brief.brand} - three Instagram posts\n", f"Instagram: {b.brief.instagram}\n",
-               f"Strategy: {plan.strategy}\n"]
+    # Client-facing summary, in the language of the posts
+    summary = [f"# {b.brief.brand} – tri Instagram objave\n", f"Instagram: {b.brief.instagram}\n",
+               f"**Strategija:** {plan.strategy}\n"]
     posts_out = []
     for post, made in zip(plan.posts, created.posts):
         folder = final / f"post_{post.number}"
@@ -285,24 +300,32 @@ def phase_deliver(run: Run, services: Services, note: str | None) -> DeliverResu
         full_caption = caption.strip() + "\n\n" + " ".join(post.hashtags)
         (folder / "caption.txt").write_text(full_caption + "\n")
 
+        n = len(made.slides)
+        fmt = f"karusel ({n} {'slajda' if 2 <= n <= 4 else 'slajdova'})" if post.format == "carousel" else "jedna slika"
+        qa = "nije provedena"
+        if reviewed:
+            qa = "prošla" if reviewed.passed else "treba ljudski pregled (detalji u phases/05_review.json)"
+            if reviewed.regenerated_slides:
+                qa += f"; ponovno generirani slajdovi: {', '.join(map(str, reviewed.regenerated_slides))}"
+            if reviewed.caption_edited_by_human:
+                qa += "; opis je ručno uređen, provjera ga nije mijenjala"
         summary += [
-            f"\n## Post {post.number}: {post.title}\n",
-            f"- **Format:** {post.format} ({len(made.slides)} slide{'s' if len(made.slides) > 1 else ''})",
-            f"- **Goal:** {post.goal}",
-            f"- **Concept:** {post.concept}",
-            f"- **Why it fits the brand:** {post.rationale}",
-            f"- **QA:** {'passed' if reviewed and reviewed.passed else 'see 05_review.json'}"
-            + (f", regenerated slides {reviewed.regenerated_slides}" if reviewed and reviewed.regenerated_slides else ""),
-            f"\n**Caption:**\n\n{full_caption}\n",
+            f"\n## Objava {post.number}: {post.title}\n",
+            f"- **Format:** {fmt}, 1080×1350 px",
+            f"- **Cilj:** {post.goal}",
+            f"- **Koncept:** {post.concept}",
+            f"- **Zašto odgovara brendu:** {post.rationale}",
+            f"- **Provjera kvalitete:** {qa}",
+            f"\n**Opis objave:**\n\n{full_caption}\n",
         ]
         posts_out.append({"number": post.number, "title": post.title, "format": post.format,
                           "files": files, "caption": full_caption})
 
     usage = run.state["usage"]
-    summary.append(f"\n---\nCost of this run: ${usage['cost_usd']:.2f} "
-                   f"(Claude ${usage.get('claude_cost_usd', 0):.2f}: {usage['claude_input_tokens']:,} input and "
-                   f"{usage['claude_output_tokens']:,} output tokens; Gemini ${usage.get('gemini_cost_usd', 0):.2f}: "
-                   f"{usage['images']} generated images)\n")
+    summary.append(f"\n---\nTrošak ovog pokretanja: ${usage['cost_usd']:.2f} "
+                   f"(Claude ${usage.get('claude_cost_usd', 0):.2f}: {usage['claude_input_tokens']:,} ulaznih i "
+                   f"{usage['claude_output_tokens']:,} izlaznih tokena; Gemini ${usage.get('gemini_cost_usd', 0):.2f}: "
+                   f"{usage['images']} generiranih slika)\n")
     (final / "README.md").write_text("\n".join(summary))
 
     zip_path = final / f"{run.id}.zip"
@@ -348,6 +371,9 @@ def render_slide(run: Run, services: Services, brief: Brief, analysis: BrandAnal
         if images_so_far >= services.settings.max_images_per_run:
             raise ImageBudgetExceeded(
                 f"Image limit reached ({services.settings.max_images_per_run} per run) - stopping to protect your credit")
+        # ...and never start an image the remaining Gemini credit cannot pay for
+        price = PRICES["image"].get(services.settings.image_size, 0.05)
+        ensure(services.settings, "gemini", price * (_in_flight.get(run.id, 0) + 1), "the next image")
         _in_flight[run.id] = _in_flight.get(run.id, 0) + 1
     try:
         png = services.gemini.generate(scene_prompt, images_so_far=images_so_far, on_usage=run.add_usage)
@@ -422,7 +448,7 @@ def scene_text(slide: Slide, analysis: BrandAnalysis, feedback: str) -> str:
 
 
 def review_post(run: Run, services: Services, brief: Brief, analysis: BrandAnalysis,
-                post: PostPlan, made: CreatedPost) -> PostReview:
+                post: PostPlan, made: CreatedPost, human_caption: bool = False) -> PostReview:
     inputs = run.path / "inputs"
     facts = [f.claim for f in analysis.facts if f.verified] + [
         f"{p.name}: {p.style}, {p.abv}, {p.volume}" for p in analysis.products]
@@ -435,6 +461,10 @@ def review_post(run: Run, services: Services, brief: Brief, analysis: BrandAnaly
             f"### {s.url}\n{s.text[:2500]}" for s in run.read("brief", BriefResult).sources if s.ok)),
         text_block(f"## Planned post {post.number}\n" + post.model_dump_json(indent=2, exclude={"slides"})),
     ]
+    if human_caption:
+        content.append(text_block(
+            "Note: the caption was edited by a human editor on purpose. Check it as usual and explain every "
+            "concern in `caption_issues`, but keep the editor's wording; `revised_caption` is only a suggestion."))
     used = {s.product for s in post.slides if s.product}
     for name in used:
         content += [text_block(f"Reference product photo: {name}"), image_block(inputs / find_product(brief, name).image)]
@@ -443,6 +473,7 @@ def review_post(run: Run, services: Services, brief: Brief, analysis: BrandAnaly
         content += [text_block(f"Finished slide {slide.index} of {len(made.slides)}:"),
                     image_block(run.path / slide.final_file, max_side=1350)]
 
+    ensure(services.settings, "claude", MIN_CLAUDE_CALL, f"the QA of post {post.number}")
     return services.claude.structured(system=prompt("review"), content=content, schema=PostReview,
                                       effort="medium", on_usage=run.add_usage)
 
@@ -479,6 +510,10 @@ def run_phase(run: Run, phase: str, services: Services, note: str | None = None)
     not_done = [p for p in previous if run.state["phases"][p]["status"] != "done"]
     if not_done:
         raise RuntimeError(f"Run these phases first: {not_done}")
+
+    # Do not start a phase the remaining credit cannot pay for
+    images = sum(len(p.slides) for p in run.read("plan", ContentPlan).posts) if phase == "create" else 0
+    check_phase(services.settings, phase, images)
 
     if note:
         run.update(lambda s: s["notes"].__setitem__(phase, note))

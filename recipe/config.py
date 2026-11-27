@@ -37,7 +37,9 @@ class Settings:
 PRICES = {
     "claude-opus-5-5": {"input": 4.00, "output": 20.00, "cache_read": 0.20},  # per 1M tokens
     "claude-sonnet-5-5": {"input": 2.00, "output": 10.00, "cache_read": 0.10},
-    "image": {"1K": 0.0336, "2K": 0.0504, "4K": 0.113},  # per image, gemini-nano-banana-2.1
+    # Per image, gemini-nano-banana-2.1. Calibrated on the billing console: 9 images at 1K cost
+    # $0.50 (prompt tokens included), so the list price alone underestimated; 2K/4K scaled alike.
+    "image": {"1K": 0.056, "2K": 0.084, "4K": 0.19},
 }
 
 # Instagram portrait post (4:5)

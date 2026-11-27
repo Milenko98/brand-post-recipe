@@ -18,6 +18,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 
+from recipe.budget import CONSOLES, SERVICES, set_balance, spending
 from recipe.config import ROOT, Settings
 from recipe.pipeline import Services, recompose, run_phase, run_pipeline, scenes_still_valid, start_run
 from recipe.schemas import Brief, ContentPlan
@@ -87,7 +88,9 @@ def run_payload(run: Run) -> dict:
     for phase in PHASES:
         if state["phases"][phase]["status"] == "done" and run.has(phase):
             outputs[phase] = json.loads(run.phase_file(phase).read_text())
-    return {**state, "busy": run.id in _active, "outputs": outputs}
+    # Busy also when a phase runs in another process (the CLI container), so the UI keeps refreshing
+    running = any(info["status"] == "running" for info in state["phases"].values())
+    return {**state, "busy": run.id in _active or running, "outputs": outputs}
 
 
 # ---------------------------------------------------------------- endpoints
@@ -101,7 +104,25 @@ def health():
         "image_model": settings.image_model,
         "max_images_per_run": settings.max_images_per_run,
         "phases": PHASES,
+        # Estimated from our own records - the providers have no API for the prepaid balance
+        "budget": {name: {**account.as_dict(), "console": CONSOLES[name]}
+                   for name, account in spending(settings).items()},
     }
+
+
+class CreditRequest(BaseModel):
+    balance: float | None = None  # None removes the limit
+
+
+@app.put("/api/credit/{service}")
+def update_credit(service: str, body: CreditRequest):
+    """Balance copied from the provider's console; the time it is saved is recorded."""
+    if service not in SERVICES:
+        raise HTTPException(404, f"Unknown service '{service}'")
+    if body.balance is not None and body.balance < 0:
+        raise HTTPException(422, "The balance cannot be negative")
+    set_balance(settings, service, body.balance)
+    return health()
 
 
 @app.get("/api/example-brief")

@@ -29,7 +29,8 @@ _lock = threading.Lock()
 
 
 def now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # With the UTC offset, so times compare correctly with balances read in local time
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 class Run:
@@ -104,6 +105,10 @@ class Run:
         def apply(s):
             for key, value in delta.items():
                 s["usage"][key] = round(s["usage"].get(key, 0) + value, 6)
+            # Timestamped costs, so spending can be counted from the moment a balance was read
+            costs = {k: v for k, v in delta.items() if k in ("claude_cost_usd", "gemini_cost_usd")}
+            if costs:
+                s.setdefault("cost_events", []).append({"at": now(), **costs})
         self.update(apply)
 
     # ------------------------------------------------------------ phase outputs

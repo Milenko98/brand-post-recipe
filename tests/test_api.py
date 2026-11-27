@@ -39,6 +39,15 @@ def wait_idle(client, run_id, timeout=30):
 def test_health_reports_missing_keys(client):
     data = client.get("/api/health").json()
     assert data["claude"] is False and data["phases"][0] == "brief"
+    assert data["budget"]["claude"]["remaining"] is None  # no balance set
+
+
+def test_credit_is_entered_in_the_ui(client):
+    data = client.put("/api/credit/claude", json={"balance": 2.26}).json()
+    assert data["budget"]["claude"]["remaining"] == 2.26 and data["budget"]["claude"]["balance_at"]
+    assert client.put("/api/credit/claude", json={"balance": -1}).status_code == 422
+    assert client.put("/api/credit/openai", json={"balance": 1}).status_code == 404
+    assert client.put("/api/credit/claude", json={"balance": None}).json()["budget"]["claude"]["remaining"] is None
 
 
 def test_example_run_through_all_phases(client):
@@ -139,7 +148,8 @@ def test_only_phases_of_this_container_are_marked_interrupted(client, settings):
     # Running in the CLI container: must stay "running"
     run.set_phase("analysis", "running")
     run.update(lambda s: s["phases"]["analysis"].__setitem__("worker", {"host": "cli-container", "pid": 1}))
-    assert client.get(f"/api/runs/{run_id}").json()["phases"]["analysis"]["status"] == "running"
+    data = client.get(f"/api/runs/{run_id}").json()
+    assert data["phases"]["analysis"]["status"] == "running" and data["busy"]  # the UI keeps refreshing
 
     # Started here by a process that no longer exists (server restart): marked failed
     run.update(lambda s: s["phases"]["analysis"].__setitem__("worker", {"host": socket.gethostname(), "pid": 999999}))

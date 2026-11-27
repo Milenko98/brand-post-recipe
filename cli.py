@@ -7,6 +7,8 @@
     python cli.py recompose <run_id>                            # re-composite slides from saved scenes (free)
     python cli.py status <run_id>
     python cli.py list
+    python cli.py budget                                        # estimated credit left on each provider
+    python cli.py budget --set claude=2.26 gemini=4.50          # enter the balance shown in the consoles
 """
 
 import argparse
@@ -14,10 +16,23 @@ import json
 import sys
 from pathlib import Path
 
+from datetime import datetime
+
+from recipe.budget import set_balance, spending
 from recipe.config import Settings
 from recipe.llm import AIError
 from recipe.pipeline import Services, recompose, run_pipeline, start_run
 from recipe.store import PHASES, Run
+
+
+def print_budget(settings: Settings) -> None:
+    for name, account in spending(settings).items():
+        if account.balance is None:
+            print(f"  {name.capitalize():<7} no balance entered (python cli.py budget --set {name}=<amount>)")
+            continue
+        read = datetime.fromisoformat(account.balance_at).astimezone().strftime("%d.%m.%Y %H:%M")
+        print(f"  {name.capitalize():<7} ~${account.remaining:.2f} left  (balance ${account.balance:.2f} entered "
+              f"{read}, ${account.spent_since:.2f} spent since)")
 
 
 def print_status(run: Run) -> None:
@@ -55,10 +70,20 @@ def main() -> int:
     status = sub.add_parser("status")
     status.add_argument("run_id")
     sub.add_parser("list")
+    budget = sub.add_parser("budget", help="estimated credit left on Anthropic and Gemini")
+    budget.add_argument("--set", nargs="+", metavar="SERVICE=USD",
+                        help="balance from the console, e.g. claude=2.26 gemini=4.50 (empty value removes it)")
 
     args = parser.parse_args()
     settings = Settings()
     services = Services(settings)
+
+    if args.command == "budget":
+        for item in args.set or []:
+            service, _, amount = item.partition("=")
+            set_balance(settings, service.strip(), float(amount) if amount.strip() else None)
+        print_budget(settings)
+        return 0
 
     if args.command == "list":
         for path in sorted(settings.runs_dir.glob("*/state.json")):
@@ -76,6 +101,8 @@ def main() -> int:
 
     if args.command == "status":
         print_status(Run.load(settings.runs_dir, args.run_id))
+        print("\nCredit (estimate):")
+        print_budget(settings)
         return 0
 
     run = start_run(args.brief, settings) if args.command == "new" else Run.load(settings.runs_dir, args.run_id)

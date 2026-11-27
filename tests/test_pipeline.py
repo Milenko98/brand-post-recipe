@@ -8,7 +8,7 @@ from PIL import Image
 from recipe.config import Settings
 from recipe.images import ImageBudgetExceeded
 from recipe.pipeline import Services, run_phase, run_pipeline, start_run
-from recipe.schemas import BriefResult, CreateResult, ReviewResult
+from recipe.schemas import BriefResult, ContentPlan, CreateResult, ReviewResult
 from recipe.store import PHASES
 from tests.fakes import FakeClaude, FakeGemini, FakeWeb, PostReview, review
 
@@ -148,3 +148,65 @@ def test_recompose_reuses_scenes_without_api_calls(settings, fakes, example_brie
     assert run.state["phases"]["review"]["status"] == "pending"
     created = run.read("create", CreateResult)
     assert all(a.score is None for p in created.posts for s in p.slides for a in s.attempts)
+
+
+def test_budget_stops_a_phase_that_cannot_be_paid(settings, fakes, example_brief):
+    from recipe.budget import BudgetExceeded, set_balance
+
+    services = fakes[0]
+    run = start_run(example_brief, settings)
+    run_phase(run, "brief", services)
+    set_balance(settings, "claude", 0.3)
+
+    with pytest.raises(BudgetExceeded, match="budget --set claude"):
+        run_phase(run, "analysis", services)  # needs ~$0.60, only $0.30 left
+    assert run.state["phases"]["analysis"]["status"] == "pending"  # nothing was started
+
+
+def test_gemini_balance_stops_image_generation(tmp_path, example_brief):
+    from recipe.budget import BudgetExceeded, set_balance
+
+    settings = Settings(anthropic_api_key="", gemini_api_key="", runs_dir=tmp_path / "runs",
+                        image_size="2K", image_workers=1)
+    services = Services(settings, claude=FakeClaude(), gemini=FakeGemini(), web=FakeWeb())
+    run = start_run(example_brief, settings)
+    run_pipeline(run, services, stop_after="plan")
+    set_balance(settings, "gemini", 0.2)
+
+    with pytest.raises(BudgetExceeded):
+        run_phase(run, "create", services)  # the plan needs more images than $0.20 pays for
+    assert run.state["usage"]["images"] == 0
+
+
+def test_only_costs_after_the_balance_was_entered_are_subtracted(settings, example_brief):
+    from recipe.budget import set_balance, spending
+
+    run = start_run(example_brief, settings)
+    run.add_usage(claude_cost_usd=0.5, cost_usd=0.5)  # already included in the console balance
+    set_balance(settings, "claude", 2.0)
+    run.update(lambda s: s["cost_events"].append({"at": "2999-01-01T00:00:00+00:00", "claude_cost_usd": 0.25}))
+
+    claude, gemini = spending(settings)["claude"], spending(settings)["gemini"]
+    assert claude.spent_since == 0.25 and claude.remaining == 1.75
+    assert gemini.remaining is None  # no balance entered = no limit
+
+
+def test_qa_only_suggests_changes_to_a_human_edited_caption(settings, example_brief):
+    claude = FakeClaude()
+    services = Services(settings, claude=claude, gemini=FakeGemini(), web=FakeWeb())
+    run = start_run(example_brief, settings)
+    run_pipeline(run, services, stop_after="create")
+
+    # Human edit of post 1, as the API does it: keep the AI plan, save the edited one
+    (run.path / "03_plan.ai.json").write_text(run.phase_file("plan").read_text())
+    plan = run.read("plan", ContentPlan)
+    plan.posts[0].caption = "Blago kiselkasto pivo."
+    run.save("plan", plan)
+
+    claude.caption_fix = "Kiselo pivo."
+    run_pipeline(run, services)
+
+    posts = run.read("review", ReviewResult).posts
+    assert posts[0].caption_edited_by_human and posts[0].final_caption == "Blago kiselkasto pivo."
+    assert posts[0].suggested_caption == "Kiselo pivo."
+    assert not posts[1].caption_edited_by_human and posts[1].final_caption == "Kiselo pivo."  # AI caption: corrected

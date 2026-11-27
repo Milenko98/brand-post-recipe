@@ -186,8 +186,17 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[st
     return lines
 
 
+def _clean_text(text: str) -> str:
+    """Typography for the poster fonts: no emoji (the fonts have no glyphs for them), proper dashes."""
+    kept = "".join(c for c in text if ord(c) < 0x2190 or c in "–—„“”‘’…·→")
+    return " ".join(kept.replace(" - ", " – ").split())
+
+
 def _text_layout(canvas: Image.Image, slide: Slide, has_product: bool):
-    """Find the largest headline size that fits in max 3 lines; returns (top, bottom, lines, font, sub_font, x)."""
+    """Fit the headline (max 3 lines, largest size) and the subline (shrinks, then wraps to 2 lines).
+
+    Returns (top, bottom, lines, font, sub_lines, sub_font, x).
+    """
     W, H = canvas.size
     draw = ImageDraw.Draw(canvas)
     x = int(W * MARGIN)
@@ -200,7 +209,7 @@ def _text_layout(canvas: Image.Image, slide: Slide, has_product: bool):
         if slide.product_position == "left":
             x = int(W * (1 - MARGIN)) - max_width - int(W * 0.04)
 
-    headline = slide.headline.upper()
+    headline = _clean_text(slide.headline).upper()
     lines, font = [], None
     for size in range(130, 54, -6):
         font = _font(HEADLINE_FONT, size)
@@ -208,17 +217,27 @@ def _text_layout(canvas: Image.Image, slide: Slide, has_product: bool):
         if len(lines) <= (4 if beside_product else 3) and all(draw.textlength(l, font=font) <= max_width for l in lines):
             break
 
-    sub_font = _font(BODY_FONT, 38, "Bold")
-    line_h = int(font.size * 1.18)
+    # The subline band has padding on both sides
+    subline = _clean_text(slide.subline)
     pad = int(font.size * 0.18)
-    block_h = len(lines) * (line_h + pad) + (int(sub_font.size * 1.8) if slide.subline else 0)
+    sub_lines, sub_font = [], None
+    for size in range(38, 27, -2):
+        sub_font = _font(BODY_FONT, size, "Bold")
+        sub_lines = [subline] if subline else []
+        if draw.textlength(subline, font=sub_font) <= max_width - 2 * pad:
+            break
+    else:
+        sub_lines = _wrap(draw, subline, sub_font, max_width - 2 * pad)
+
+    line_h = int(font.size * 1.18)
+    block_h = len(lines) * (line_h + pad) + len(sub_lines) * int(sub_font.size * 1.5) + (pad if sub_lines else 0)
 
     top = int(H * MARGIN) if slide.text_position == "top" else int(H * (1 - MARGIN)) - block_h
-    return top, top + block_h, lines, font, sub_font, x
+    return top, top + block_h, lines, font, sub_lines, sub_font, x
 
 
 def _draw_text(canvas: Image.Image, slide: Slide, layout) -> None:
-    top, _, lines, font, sub_font, x = layout
+    top, _, lines, font, sub_lines, sub_font, x = layout
     draw = ImageDraw.Draw(canvas)
     line_h = int(font.size * 1.18)
     pad = int(font.size * 0.18)
@@ -231,8 +250,9 @@ def _draw_text(canvas: Image.Image, slide: Slide, layout) -> None:
         draw.text((x + pad, y + line_h / 2), line, font=font, fill=slide.text_color, anchor="lm")
         y += line_h + pad
 
-    if slide.subline:
-        sub_w = draw.textlength(slide.subline, font=sub_font)
-        box_h = int(sub_font.size * 1.5)
+    box_h = int(sub_font.size * 1.5)
+    for line in sub_lines:
+        sub_w = draw.textlength(line, font=sub_font)
         draw.rectangle([x, y, x + sub_w + 2 * pad, y + box_h], fill=(20, 20, 20, 230))
-        draw.text((x + pad, y + box_h / 2), slide.subline, font=sub_font, fill="#FFFFFF", anchor="lm")
+        draw.text((x + pad, y + box_h / 2), line, font=sub_font, fill="#FFFFFF", anchor="lm")
+        y += box_h

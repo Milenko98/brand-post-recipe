@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<title>Brand Post Recipe – Zmajska pivovara</title>
+<style>
+  @font-face { font-family: "Anton"; src: url("../recipe/fonts/Anton-Regular.ttf"); }
+  /* Static Inter instances: Chrome embeds the variable font as Type 3 glyphs that some PDF viewers clip */
+  @font-face { font-family: "Inter"; src: url("fonts/Inter-Regular.ttf"); font-weight: 400; }
+  @font-face { font-family: "Inter"; src: url("fonts/Inter-SemiBold.ttf"); font-weight: 600; }
+  @page { size: A4; margin: 12mm 13mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Inter", sans-serif; font-size: 8.6pt; line-height: 1.38; color: #1c1917; margin: 0; }
+  h1, h2 { font-family: "Anton", sans-serif; font-weight: 400; letter-spacing: .01em; margin: 0; }
+  h1 { font-size: 21pt; line-height: 1.05; }
+  h1 span { color: #e8641b; }
+  h2 { font-size: 11.5pt; margin: 9px 0 3px; border-bottom: 2px solid #e8641b; padding-bottom: 1px; }
+  p { margin: 0 0 4px; }
+  ul { margin: 0 0 4px; padding-left: 14px; }
+  li { margin-bottom: 1.5px; }
+  code, pre { font-family: "DejaVu Sans Mono", monospace; font-size: 7.4pt; }
+  pre { background: #f5f5f4; border-radius: 4px; padding: 5px 7px; margin: 2px 0 4px; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; margin: 2px 0 4px; }
+  th, td { text-align: left; vertical-align: top; padding: 2.5px 5px; border-bottom: 1px solid #e7e5e4; }
+  th { font-size: 7.6pt; text-transform: uppercase; letter-spacing: .03em; color: #57534e; }
+  .meta { color: #57534e; margin: 3px 0 6px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .strip { width: 100%; border-radius: 3px; margin: 3px 0 1px; }
+  .figs { display: flex; gap: 6px; align-items: flex-start; }
+  figure { margin: 0; flex: 1; }
+  figure img { width: 100%; border-radius: 3px; display: block; }
+  figcaption { font-size: 7.2pt; color: #57534e; margin-top: 1px; }
+  .box { background: #fff7ed; border-left: 3px solid #e8641b; padding: 4px 8px; margin: 3px 0 5px; }
+  .small { font-size: 7.6pt; color: #57534e; }
+  .page-break { break-before: page; }
+  b { font-weight: 600; }
+</style>
+</head>
+<body>
+
+<h1>BRAND POST <span>RECIPE</span> – od Instagram brenda do tri gotove objave</h1>
+<p class="meta">Primjer: <b>Zmajska pivovara</b> (@zmajskapivovara) · Milenko Pjaca · studeni 2026 ·
+  kod: <b>github.com/Milenko98/brand-post-recipe</b></p>
+
+<p>Recept je ponovljiv postupak u šest odvojenih faza. Iz brifa, screenshotova postojećih objava, službenog weba i
+fotografija proizvoda nastaju tri objave spremne za Instagram: slike 1080×1350, opisi s hashtagovima, format,
+cilj i obrazloženje. Svaka faza sprema međurezultat (JSON), pa se rad može pregledati, ručno ispraviti i nastaviti
+od bilo koje faze. Pokreće se iz web sučelja (FastAPI + Vue) ili iz naredbenog retka (CLI). Oba koriste istu jezgru u Pythonu.</p>
+
+<h2>Kako se pokreće</h2>
+<pre>cp .env.example .env              # upisati ANTHROPIC_API_KEY i GEMINI_API_KEY (primjer je bez ključeva)
+docker compose build api && docker compose up -d      # sučelje: http://localhost:5175, API: :8001/docs
+docker compose run --rm cli new inputs/zmajska/brief.yaml --stop-after plan    # stane nakon plana
+docker compose run --rm cli resume &lt;id&gt; [--from plan --note "Više humora"]     # nastavak / ponavljanje faze
+docker compose run --rm cli recompose &lt;id&gt;     # ponovno složi slajdove iz postojećih pozadina (bez troška)</pre>
+<p class="small">Sve radi u Dockeru (Python 3.14, Node 26). Testovi: <code>docker compose --profile test run --rm pytest</code>
+(31 test, lažni AI klijenti, bez troška) i Vitest (12). GitHub Actions ih pokreće na svakom pushu.</p>
+
+<h2>Faze</h2>
+<table>
+  <tr><th style="width:13%">Faza</th><th style="width:15%">AI</th><th>Što radi</th><th style="width:17%">Međurezultat</th></tr>
+  <tr><td><b>1. Brif</b></td><td>–</td><td>Provjera ulaza (proizvodi, logo, screenshotovi, opisi); čitanje službenog weba i webshopa (8 stranica).</td><td>01_brief.json</td></tr>
+  <tr><td><b>2. Analiza</b></td><td>Claude Opus 5.5</td><td>Ton, pravila pisanja, boje (hex), foto i grafički stil, proizvodi. <b>Provjerene činjenice s izvorom</b> odvojene od pretpostavki (45 činjenica s weba).</td><td>02_analysis.json</td></tr>
+  <tr><td><b>3. Plan</b></td><td>Claude</td><td>Tri objave s različitim ciljem: format, koncept, obrazloženje, tekstovi slajdova, opis, hashtagovi, opis scene. <b>Ovdje čovjek pregledava i uređuje.</b></td><td>03_plan.json (+ 03_plan.ai.json)</td></tr>
+  <tr><td><b>4. Izrada</b></td><td>Gemini (slika)</td><td>AI generira <b>samo pozadinu</b>. Prava fotografija proizvoda, pravi logo i naslov slažu se preko nje (Pillow).</td><td>images/, 04_create.json</td></tr>
+  <tr><td><b>5. Provjera</b></td><td>Claude (vizualno)</td><td>Ocjena svakog slajda i opisa. Loši slajdovi se ponovno generiraju s ispravkom (do 2×), zadržava se najbolji pokušaj.</td><td>05_review.json</td></tr>
+  <tr><td><b>6. Isporuka</b></td><td>–</td><td>Mapa po objavi (slike + caption.txt), sažetak s ciljem i obrazloženjem, ZIP sa svim fazama.</td><td>final/, ZIP</td></tr>
+</table>
+
+<h2>Ključne odluke</h2>
+<ul>
+  <li><b>AI ne crta proizvod ni logo.</b> Generatori slika iskrivljuju etikete i slova. Zato Gemini radi samo scenu, a pravi proizvod
+    se slaže preko nje uz kontaktnu sjenu i prilagodbu svjetline. Etiketa je uvijek točna, a cijena je manja realističnost svjetla.</li>
+  <li><b>Strukturirani izlazi.</b> Claude odgovara točno po Pydantic shemi (analiza, plan, ocjena), pa kod nikad ne parsira slobodan tekst.
+    Dugi odgovori se streamaju, a prekinut ili odbijen odgovor daje jasnu grešku.</li>
+  <li><b>Činjenice samo iz izvora.</b> Analiza smije kao činjenicu navesti samo ono što piše na webu ili etiketi. Plan ne smije izmišljati cijene,
+    popuste ni događaje, a provjera uspoređuje opise s tekstom s weba. Uz to vrijede pravila odgovorne komunikacije alkohola.</li>
+  <li><b>Čovjek ima zadnju riječ.</b> Ručno uređen opis provjera ne smije prepisati, smije samo predložiti promjenu. Promjena naslova ili opisa
+    ne traži nove slike: slajdovi se besplatno ponovno slože iz spremljenih pozadina.</li>
+  <li><b>Kontrola troška.</b> Trošak se bilježi po pozivu (tokeni, slike). Postoje limiti broja slika i ponavljanja te unos stanja kredita
+    s konzole. Faza se ne pokreće ako je preostali kredit ne može platiti.</li>
+  <li><b>Jezik.</b> Kod i dokumentacija su na engleskom; analiza, objave i sučelje na hrvatskom. Opisi scena za generator slika su na engleskom.</li>
+</ul>
+
+<h2>Rezultat (finalno pokretanje)</h2>
+<img class="strip" src="img/final_posts.jpg" alt="Devet finalnih slajdova">
+<p class="small"><b>1</b> „Koliko zmaj grize?“ – karusel od 5 slajdova, edukacija o gorčini (IBU), cilj spremanje ·
+<b>2</b> „Za frenda koji ne voli pivo“ – jedna slika, cilj komentari i tagiranje ·
+<b>3</b> „Lager, ali zmajski“ – karusel od 3 slajda, cilj kupnja u webshopu. Opisi, ciljevi i obrazloženja su u <code>final/README.md</code>.</p>
+
+<div class="page-break"></div>
+
+<h2>Provjera kvalitete (QA)</h2>
+<div class="cols">
+<div>
+<p>Claude kao art direktor dobiva referentne fotografije proizvoda, logo, gotove slajdove, provjerene činjenice i tekst s weba.
+Za svaki slajd vraća ocjenu 1–10 i četiri provjere: <b>točan proizvod</b> (bez lažnih limenki i natpisa u pozadini),
+<b>prirodno</b> (stoji li proizvod uvjerljivo na podlozi), <b>u skladu s brendom</b> i <b>čitljiv tekst</b>.
+Slajd koji padne (ocjena ispod 7 ili neka provjera netočna), a problem je u pozadini, ponovno se generira s konkretnim ispravkom
+scene. Zadržava se najbolje ocijenjen pokušaj. Opis se provjerava na izmišljene tvrdnje, cijene, zdravstvene tvrdnje i ton.</p>
+<p>Uz to: automatski testovi cijelog toka s lažnim AI klijentima (31 + 12), testovi slaganja slika i ručni pregled svakog
+pokretanja u sučelju. QA je uhvatio i greške u mom kodu: naslov je prekrivao proizvod, podnaslov je bio odrezan, a emoji su se iscrtavali kao kvadratić.
+Popravljene su u slaganju, bez novih slika.</p>
+</div>
+<div class="figs">
+  <figure><img src="img/compose_before.jpg" alt=""><figcaption>Prvi test: naslov prekriva limenku (QA ocjena 3)</figcaption></figure>
+  <figure><img src="img/compose_after.jpg" alt=""><figcaption>Nakon popravka slaganja, ista pozadina</figcaption></figure>
+  <figure><img src="img/regen_a1.jpg" alt=""><figcaption>Finalno: 1. pozadina, ocjena 7</figcaption></figure>
+  <figure><img src="img/regen_a3.jpg" alt=""><figcaption>Automatski ponovljena, ocjena 8</figcaption></figure>
+</div>
+</div>
+
+<h2>Primjer ljudske izmjene AI prijedloga</h2>
+<div class="box">
+<p><b>Naslov, objava 2.</b> AI: <i>„TAGIRAJ ONOG KOJI ‚NE VOLI PIVO'“</i> → čovjek: <i>„ZA FRENDA KOJI NE VOLI PIVO“</i>.
+Razlog: predugo za sliku. Kraći naslov je čitljiviji, a poziv na tagiranje je ionako u opisu.</p>
+<p><b>Opis, objava 1.</b> AI: <i>„kiselo pivo … Kiselost dolazi od prirodnih bakterija“</i> → čovjek: <i>„blago kiselkasto pivo …
+Blaga kiselost dolazi od prirodnih bakterija“</i>. Razlog: „kiselo“ i „bakterije“ odbijaju nekoga tko ne poznaje sour stil.</p>
+<p><b>Što se dogodilo poslije:</b> provjera je upozorila da web piše „karakteristična kiselost“, a ne „blaga“, pa ublažavanje nije
+potkrijepljeno. U prvoj verziji provjera je izmjenu potiho vratila. To sam promijenio: ručno uređen tekst se ne prepisuje,
+primjedba i prijedlog ostaju vidljivi (sučelje, 05_review.json), a odluku donosi čovjek. Izmjena se radi u sučelju (faza Plan),
+original AI plana se sprema kao <code>03_plan.ai.json</code>, a slajdovi se ponovno slože bez novih slika.</p>
+</div>
+
+<div class="cols">
+<div>
+<h2>Ograničenja</h2>
+<ul>
+  <li>Proizvod je zalijepljen na scenu. Svjetlo, odsjaj i perspektiva ne poklapaju se uvijek savršeno. Objava 2 i nakon tri pokušaja nosi
+    oznaku „treba ljudski pregled“ jer limenka ne djeluje uvjerljivo na šanku.</li>
+  <li>QA je model, ne istina. Zna biti prestrog (lažne uzbune) ili propustiti nešto, pa ljudski pregled ostaje obavezan.</li>
+  <li>Instagram se ne scrapea (uvjeti korištenja). Screenshotovi i opisi objava skupljaju se ručno, a web se čita automatski.</li>
+  <li>Generirane slike nose nevidljivi SynthID žig. Prava na tuđe materijale (logo, fotografije) treba riješiti s klijentom.</li>
+  <li>Stanje kredita kod providera nije dostupno preko API-ja, pa aplikacija procjenjuje iz vlastite evidencije i ručnog unosa.</li>
+  <li>Jedan brend po pokretanju, jedan korisnik, bez baze. Za demonstraciju je to dovoljno, za agenciju nije.</li>
+</ul>
+</div>
+<div>
+<h2>Vrijeme i trošak</h2>
+<ul>
+  <li><b>Razvoj:</b> oko 14 sati kroz dva dana (26.–27. 11.): izbor brenda i skupljanje materijala, jezgra i faze,
+    sučelje, testiranje na stvarnim podacima, dokumentacija. Razvoj je rađen uz AI asistenta za kodiranje (Claude Code).</li>
+  <li><b>Jedno pokretanje:</b> oko 11 minuta rada AI-ja (analiza 3 min, plan 2 min, slike 1,5 min, provjera 4 min) plus ljudski pregled plana.</li>
+  <li><b>Trošak finalnog pokretanja:</b> $3,35 (Claude $2,18, Gemini $1,18 za 14 slika, od toga 5 ponovljenih).
+    Ukupno za razvoj i sva pokretanja: oko $5,70.</li>
+</ul>
+<h2>Prijedlog poboljšanja i učenje iz povratnih informacija</h2>
+<ul>
+  <li><b>Memorija brenda.</b> Svaka ljudska izmjena (AI original nasuprot konačnoj verziji), odobrenje i odbijanje sprema se uz razlog.
+    Najrelevantniji primjeri ulaze u upute za plan, pa sljedeći prijedlozi startaju bliže ukusu urednika
+    (npr. „za sour piva izbjegavaj ‚bakterije‘“). Isti skup podataka služi kao evaluacija: mjeri se koliko se prijedloga prihvati bez izmjena.</li>
+  <li><b>Stvarni rezultati.</b> Preko Instagram Graph API-ja povući doseg, spremanja i komentare objavljenih objava. Koncepti i formati
+    koji rade bolje dobivaju prednost u planu.</li>
+  <li><b>Kvaliteta slike:</b> način u kojem AI sam smješta proizvod (referentna fotografija + provjera etikete), automatsko usklađivanje boje logotipa,
+    format reel (FFmpeg).</li>
+  <li><b>Za agenciju:</b> baza, korisnici i više klijenata (npr. Django ili FastAPI + PostgreSQL), red poslova, odobravanje kroz komentare,
+    prompt caching i Batch API za niži trošak.</li>
+</ul>
+</div>
+</div>
+
+</body>
+</html>

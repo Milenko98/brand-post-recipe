@@ -29,6 +29,7 @@ export const api = {
     continueRun: (id) => request('POST', `/api/runs/${id}/continue`),
     savePlan: (id, plan) => request('PUT', `/api/runs/${id}/plan`, plan),
     recompose: (id) => request('POST', `/api/runs/${id}/recompose`),
+    setCredit: (service, balance) => request('PUT', `/api/credit/${service}`, { balance }),
 };
 
 export function fileUrl(runId, path, version = '') {
@@ -43,3 +44,11 @@ export const PHASE_LABELS = {
     review: 'Provjera',
     deliver: 'Isporuka',
 };
+
+// "27. 11. 2026. u 14:48"
+export function formatDateTime(iso) {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString('hr-HR', { day: 'numeric', month: 'numeric', year: 'numeric' });
+    const time = d.toLocaleTimeString('hr-HR', { hour: '2-digit', minute: '2-digit' });
+    return `${date} u ${time}`;
+}

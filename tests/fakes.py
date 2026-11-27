@@ -12,6 +12,7 @@ class FakeClaude:
     def __init__(self, reviews: list[PostReview] | None = None):
         self.calls: list[dict] = []
         self.reviews = list(reviews or [])
+        self.caption_fix = ""  # revised_caption returned by passing reviews
 
     def structured(self, *, system, content, schema, effort="high", on_usage=None):
         self.calls.append({"schema": schema.__name__, "content": content, "effort": effort})
@@ -23,7 +24,7 @@ class FakeClaude:
         if schema is ContentPlan:
             return plan()
         if schema is PostReview:
-            return self.reviews.pop(0) if self.reviews else passing_review(content)
+            return self.reviews.pop(0) if self.reviews else passing_review(content, self.caption_fix)
         raise AssertionError(f"Unexpected schema {schema}")
 
 
@@ -83,9 +84,9 @@ def plan() -> ContentPlan:
     return ContentPlan(strategy="Launch, engage, educate", posts=posts)
 
 
-def passing_review(content) -> PostReview:
+def passing_review(content, caption: str = "") -> PostReview:
     count = sum(1 for b in content if b.get("type") == "text" and b["text"].startswith("Finished slide"))
-    return PostReview(slides=[review(i) for i in range(1, count + 1)], caption_issues=[], revised_caption="")
+    return PostReview(slides=[review(i) for i in range(1, count + 1)], caption_issues=[], revised_caption=caption)
 
 
 def review(index: int, ok: bool = True, fix: str = "") -> SlideReview:
