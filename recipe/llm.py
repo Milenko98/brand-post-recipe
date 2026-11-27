@@ -1,6 +1,6 @@
 """Claude: brand analysis, content planning and visual QA.
 
-Every call uses structured outputs (client.beta.messages.parse + a Pydantic model),
+Every call uses structured outputs (streamed beta messages + a Pydantic output_format),
 so the response is a validated object, never free text we have to parse.
 """
 
@@ -11,12 +11,13 @@ from typing import TypeVar
 
 import anthropic
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .config import PRICES, Settings
 
 M = TypeVar("M", bound=BaseModel)
 
+MAX_TOKENS = 64000  # thinking + answer; Opus 5.5 allows up to 128k
 MAX_IMAGE_SIDE = 1568  # larger images are downscaled by the API anyway; sending less saves tokens
 
 
@@ -54,9 +55,11 @@ class Claude:
 
     def structured(self, *, system: str, content: list[dict], schema: type[M],
                    effort: str = "high", on_usage=None) -> M:
-        response = self.client.beta.messages.parse(
+        # Streaming: long answers (analysis in Croatian + thinking) can take minutes, and a
+        # non-streaming request with a large max_tokens risks an HTTP timeout.
+        with self.client.beta.messages.stream(
             model=self.model,
-            max_tokens=16000,
+            max_tokens=MAX_TOKENS,
             system=system,
             messages=[{"role": "user", "content": content}],
             output_format=schema,
@@ -64,7 +67,12 @@ class Claude:
             # If a safety classifier declines the request, the API retries it on a fallback model
             betas=["server-side-fallback-2026-07-01"],
             fallbacks="default",
-        )
+        ) as stream:
+            try:
+                response = stream.get_final_message()
+                parse_error = None
+            except ValidationError as e:  # the JSON was cut off or invalid; tokens were still billed
+                response, parse_error = stream.current_message_snapshot, e
 
         if on_usage:
             on_usage(**self._usage(response.usage))
@@ -73,9 +81,9 @@ class Claude:
             details = getattr(response, "stop_details", None)
             raise AIError(f"Claude declined the request ({getattr(details, 'category', None)})")
         if response.stop_reason == "max_tokens":
-            raise AIError("Claude's answer was cut off at max_tokens - shorten the input or raise the limit")
-        if response.parsed_output is None:
-            raise AIError(f"Claude returned no structured output (stop_reason={response.stop_reason})")
+            raise AIError(f"Claude's answer was cut off at max_tokens ({MAX_TOKENS}) - shorten the input or raise the limit")
+        if parse_error or getattr(response, "parsed_output", None) is None:
+            raise AIError(f"Claude returned no valid structured output (stop_reason={response.stop_reason}): {parse_error}")
         return response.parsed_output
 
     def _usage(self, usage) -> dict:
@@ -85,4 +93,4 @@ class Claude:
         cached = getattr(usage, "cache_read_input_tokens", 0) or 0
         cost = (inp * price["input"] + out * price["output"] + cached * price["cache_read"]) / 1_000_000
         return {"claude_input_tokens": inp, "claude_output_tokens": out,
-                "claude_cache_read_tokens": cached, "cost_usd": cost}
+                "claude_cache_read_tokens": cached, "claude_cost_usd": cost, "cost_usd": cost}

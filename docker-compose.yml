@@ -10,6 +10,8 @@ services:
       HOME: /tmp
     volumes:
       - .:/app
+      # Host time zone, so times in the CLI and logs match the user's clock
+      - /etc/localtime:/etc/localtime:ro
     ports:
       - "8001:8000"
 
@@ -23,6 +25,7 @@ services:
       HOME: /tmp
     volumes:
       - .:/app
+      - /etc/localtime:/etc/localtime:ro
     entrypoint: ["python", "cli.py"]
 
   # docker compose run --rm pytest

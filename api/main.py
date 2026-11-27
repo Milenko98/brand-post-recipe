@@ -6,6 +6,8 @@ restart at any time and runs continue from the last finished phase.
 """
 
 import json
+import os
+import socket
 import tempfile
 import threading
 from pathlib import Path
@@ -16,8 +18,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ValidationError
 
+from recipe.budget import CONSOLES, SERVICES, set_balance, spending
 from recipe.config import ROOT, Settings
-from recipe.pipeline import Services, run_phase, run_pipeline, start_run
+from recipe.pipeline import Services, recompose, run_phase, run_pipeline, scenes_still_valid, start_run
 from recipe.schemas import Brief, ContentPlan
 from recipe.store import PHASES, Run
 
@@ -50,8 +53,8 @@ def run_in_background(run: Run, fn) -> None:
     def target():
         try:
             fn()
-        except Exception:
-            pass  # the error is stored in state.json by run_phase
+        except Exception as e:
+            run.log(f"Failed: {type(e).__name__}: {e}")  # phase errors are also stored by run_phase
         finally:
             with _active_lock:
                 _active.discard(run.id)
@@ -59,12 +62,25 @@ def run_in_background(run: Run, fn) -> None:
     threading.Thread(target=target, daemon=True).start()
 
 
+def _worker_is_dead(worker: dict | None) -> bool:
+    if not worker or worker.get("host") != socket.gethostname():
+        return False
+    try:
+        os.kill(worker["pid"], 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return worker["pid"] == os.getpid()  # alive and it is us, but not in _active: the thread is gone
+
+
 def run_payload(run: Run) -> dict:
     state = run.state
-    # A phase marked "running" with no worker means the server was restarted mid-phase
+    # A phase this container started that has no live worker any more was cut off by a server restart.
+    # Phases run by the CLI (another container) are left alone.
     if run.id not in _active:
         for phase, info in state["phases"].items():
-            if info["status"] == "running":
+            if info["status"] == "running" and _worker_is_dead(info.get("worker")):
                 run.set_phase(phase, "failed", error="Interrupted (server restarted) - run the phase again")
         state = run.state
 
@@ -72,7 +88,9 @@ def run_payload(run: Run) -> dict:
     for phase in PHASES:
         if state["phases"][phase]["status"] == "done" and run.has(phase):
             outputs[phase] = json.loads(run.phase_file(phase).read_text())
-    return {**state, "busy": run.id in _active, "outputs": outputs}
+    # Busy also when a phase runs in another process (the CLI container), so the UI keeps refreshing
+    running = any(info["status"] == "running" for info in state["phases"].values())
+    return {**state, "busy": run.id in _active or running, "outputs": outputs}
 
 
 # ---------------------------------------------------------------- endpoints
@@ -86,7 +104,25 @@ def health():
         "image_model": settings.image_model,
         "max_images_per_run": settings.max_images_per_run,
         "phases": PHASES,
+        # Estimated from our own records - the providers have no API for the prepaid balance
+        "budget": {name: {**account.as_dict(), "console": CONSOLES[name]}
+                   for name, account in spending(settings).items()},
     }
+
+
+class CreditRequest(BaseModel):
+    balance: float | None = None  # None removes the limit
+
+
+@app.put("/api/credit/{service}")
+def update_credit(service: str, body: CreditRequest):
+    """Balance copied from the provider's console; the time it is saved is recorded."""
+    if service not in SERVICES:
+        raise HTTPException(404, f"Unknown service '{service}'")
+    if body.balance is not None and body.balance < 0:
+        raise HTTPException(422, "The balance cannot be negative")
+    set_balance(settings, service, body.balance)
+    return health()
 
 
 @app.get("/api/example-brief")
@@ -193,7 +229,11 @@ def continue_run(run_id: str):
 
 @app.put("/api/runs/{run_id}/plan")
 def edit_plan(run_id: str, plan: ContentPlan):
-    """Human edit of the plan before images are generated. Invalidates create/review/deliver."""
+    """Human edit of the plan.
+
+    If only texts, layout, products or captions changed, the existing AI scenes are reused and the
+    slides are re-composited for free. A changed scene prompt invalidates create and later phases.
+    """
     run = load_run(run_id)
     if run.id in _active:
         raise HTTPException(409, "Wait until the current phase finishes")
@@ -201,10 +241,28 @@ def edit_plan(run_id: str, plan: ContentPlan):
         raise HTTPException(409, "The plan phase has not finished yet")
     if len(plan.posts) != 3:
         raise HTTPException(422, "The plan must contain exactly 3 posts")
+    old = run.read("plan", ContentPlan)
+    # Keep the AI's original plan next to the edited one, so the human changes can be compared later
+    original = run.path / "03_plan.ai.json"
+    if not original.exists():
+        original.write_text(run.phase_file("plan").read_text())
     run.save("plan", plan)
-    run.invalidate_from("create")
     run.log("Plan edited by a human")
-    return run_payload(run)
+    if run.state["phases"]["create"]["status"] == "done" and scenes_still_valid(old, plan):
+        run_in_background(run, lambda: recompose(run))
+        return {**run_payload(run), "busy": True, "recomposed": True}
+    run.invalidate_from("create")
+    return {**run_payload(run), "recomposed": False}
+
+
+@app.post("/api/runs/{run_id}/recompose", status_code=202)
+def recompose_slides(run_id: str):
+    """Re-composite slides from the saved AI scenes (after compositing fixes). No API cost."""
+    run = load_run(run_id)
+    if run.state["phases"]["create"]["status"] != "done":
+        raise HTTPException(409, "Run the create phase first")
+    run_in_background(run, lambda: recompose(run))
+    return {"status": "started"}
 
 
 @app.get("/api/runs/{run_id}/files/{file_path:path}")

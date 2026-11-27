@@ -47,10 +47,10 @@ async function startExample() {
   <p v-if="error" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
 
   <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">Dosadašnja pokretanja</h2>
-  <div class="card divide-y divide-stone-100 p-0">
+  <div class="card divide-y divide-stone-100 overflow-hidden p-0">
     <RouterLink v-for="run in runs" :key="run.id" :to="`/runs/${run.id}`"
-                class="flex items-center justify-between px-5 py-3 hover:bg-stone-50">
-      <span class="font-mono text-sm">{{ run.id }}</span>
+                class="flex flex-col gap-2 px-5 py-3 hover:bg-stone-50 sm:flex-row sm:items-center sm:justify-between">
+      <span class="break-all font-mono text-sm">{{ run.id }}</span>
       <span class="flex items-center gap-3">
         <span class="flex gap-1">
           <StatusDot v-for="(status, phase) in run.phases" :key="phase" :status="status" :title="PHASE_LABELS[phase]" />

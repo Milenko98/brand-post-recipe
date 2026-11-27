@@ -195,6 +195,9 @@ class ReviewedPost(BaseModel):
     regenerated_slides: list[int]
     passed: bool
     final_caption: str
+    # A caption edited by a human is never rewritten by QA; its correction is only suggested
+    caption_edited_by_human: bool = False
+    suggested_caption: str = ""
 
 
 class ReviewResult(BaseModel):

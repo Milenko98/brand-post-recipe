@@ -29,7 +29,8 @@ def compose_slide(scene: Image.Image, slide: Slide, product_image: Path | None, 
     text_box = _text_layout(canvas, slide, has_product)
 
     if has_product:
-        _place_product(canvas, Image.open(product_image), slide)
+        text_bottom = text_box[1] if slide.text_position == "top" and (slide.headline or slide.subline) else 0
+        _place_product(canvas, Image.open(product_image), slide, text_bottom)
 
     _place_logo(canvas, Image.open(logo), slide)
 
@@ -41,13 +42,16 @@ def compose_slide(scene: Image.Image, slide: Slide, product_image: Path | None, 
 
 # ---------------------------------------------------------------- product
 
-def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide) -> None:
+def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide, text_bottom: int = 0) -> None:
     W, H = canvas.size
-    product = product.convert("RGBA")
-    product = product.crop(product.getbbox())  # trim transparent padding
+    product = _clean_product(product)
 
+    bottom = H * 0.93  # always stands on the surface at the bottom of the scene
     scale = min(max(slide.product_scale, 0.3), 0.8)
     height = int(H * scale)
+    if text_bottom:
+        # Never let the headline cover the product: shrink it to fit under the text
+        height = max(min(height, int(bottom - text_bottom - H * 0.03)), int(H * 0.25))
     width = int(product.width * height / product.height)
     product = product.resize((width, height), Image.Resampling.LANCZOS)
 
@@ -56,7 +60,6 @@ def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide) -> N
     product = _adjust_brightness(product, 0.9 + 0.2 * scene_luma)
 
     center_x = {"left": 0.3, "center": 0.5, "right": 0.7}[slide.product_position] * W
-    bottom = H * 0.93  # always stands on the surface at the bottom of the scene
     x = int(center_x - width / 2)
     y = int(bottom - height)
 
@@ -72,6 +75,52 @@ def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide) -> N
 
     canvas.alpha_composite(shadow)
     canvas.alpha_composite(product, (x, y))
+
+
+def _clean_product(product: Image.Image) -> Image.Image:
+    """Trim transparent padding and turn the packshot's baked-in floor shadow into a transparent one.
+
+    Shop packshots are photographed on white with a soft grey shadow under the base. Pasted on a
+    scene, that shows as a white oval. Light pixels around the base become black with alpha
+    proportional to their darkness, so the scene shows through.
+    """
+    product = product.convert("RGBA")
+    product = product.crop(product.getbbox())
+    pixels = product.load()
+    w, h = product.size
+    top = int(h * 0.9)
+
+    def to_shadow(x: int, y: int) -> None:
+        r, g, b, a = pixels[x, y]
+        pixels[x, y] = (0, 0, 0, min(a, (255 - (r + g + b) // 3) * 2 // 3))
+
+    def row_mean(y: int) -> float:
+        values = [sum(pixels[x, y][:3]) / 3 for x in range(w) if pixels[x, y][3] > 128]
+        return sum(values) / len(values) if values else 255
+
+    # The darkest row near the bottom is where the product meets the floor
+    contact = min(range(top, h), key=row_mean)
+
+    # Below it there is only floor and shadow
+    for y in range(contact + 1, h):
+        for x in range(w):
+            if pixels[x, y][3] and min(pixels[x, y][:3]) > 120:
+                to_shadow(x, y)
+
+    # Beside the base, clear light floor pixels reachable from the transparent background
+    stack = [(x, y) for y in range(top, contact + 1) for x in (0, w - 1)]
+    seen = set()
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in seen or not (0 <= x < w and top <= y <= contact):
+            continue
+        seen.add((x, y))
+        r, g, b, a = pixels[x, y]
+        if a < 20 or min(r, g, b) > 200:
+            if a >= 20:
+                to_shadow(x, y)
+            stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    return product
 
 
 def _adjust_brightness(img: Image.Image, factor: float) -> Image.Image:
@@ -127,11 +176,27 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[st
             current = word
     if current:
         lines.append(current)
+    # Move a dangling short word ("I", "U", "DA") to the start of the next line when it still fits
+    for i in range(len(lines) - 1):
+        head, _, last = lines[i].rpartition(" ")
+        if head and len(last) <= 2 and last.isalpha():
+            candidate = f"{last} {lines[i + 1]}"
+            if draw.textlength(candidate, font=font) <= max_width:
+                lines[i], lines[i + 1] = head, candidate
     return lines
 
 
+def _clean_text(text: str) -> str:
+    """Typography for the poster fonts: no emoji (the fonts have no glyphs for them), proper dashes."""
+    kept = "".join(c for c in text if ord(c) < 0x2190 or c in "–—„“”‘’…·→")
+    return " ".join(kept.replace(" - ", " – ").split())
+
+
 def _text_layout(canvas: Image.Image, slide: Slide, has_product: bool):
-    """Find the largest headline size that fits in max 3 lines; returns (top, bottom, lines, font, sub_font, x)."""
+    """Fit the headline (max 3 lines, largest size) and the subline (shrinks, then wraps to 2 lines).
+
+    Returns (top, bottom, lines, font, sub_lines, sub_font, x).
+    """
     W, H = canvas.size
     draw = ImageDraw.Draw(canvas)
     x = int(W * MARGIN)
@@ -144,7 +209,7 @@ def _text_layout(canvas: Image.Image, slide: Slide, has_product: bool):
         if slide.product_position == "left":
             x = int(W * (1 - MARGIN)) - max_width - int(W * 0.04)
 
-    headline = slide.headline.upper()
+    headline = _clean_text(slide.headline).upper()
     lines, font = [], None
     for size in range(130, 54, -6):
         font = _font(HEADLINE_FONT, size)
@@ -152,17 +217,27 @@ def _text_layout(canvas: Image.Image, slide: Slide, has_product: bool):
         if len(lines) <= (4 if beside_product else 3) and all(draw.textlength(l, font=font) <= max_width for l in lines):
             break
 
-    sub_font = _font(BODY_FONT, 38, "Bold")
-    line_h = int(font.size * 1.18)
+    # The subline band has padding on both sides
+    subline = _clean_text(slide.subline)
     pad = int(font.size * 0.18)
-    block_h = len(lines) * (line_h + pad) + (int(sub_font.size * 1.8) if slide.subline else 0)
+    sub_lines, sub_font = [], None
+    for size in range(38, 27, -2):
+        sub_font = _font(BODY_FONT, size, "Bold")
+        sub_lines = [subline] if subline else []
+        if draw.textlength(subline, font=sub_font) <= max_width - 2 * pad:
+            break
+    else:
+        sub_lines = _wrap(draw, subline, sub_font, max_width - 2 * pad)
+
+    line_h = int(font.size * 1.18)
+    block_h = len(lines) * (line_h + pad) + len(sub_lines) * int(sub_font.size * 1.5) + (pad if sub_lines else 0)
 
     top = int(H * MARGIN) if slide.text_position == "top" else int(H * (1 - MARGIN)) - block_h
-    return top, top + block_h, lines, font, sub_font, x
+    return top, top + block_h, lines, font, sub_lines, sub_font, x
 
 
 def _draw_text(canvas: Image.Image, slide: Slide, layout) -> None:
-    top, _, lines, font, sub_font, x = layout
+    top, _, lines, font, sub_lines, sub_font, x = layout
     draw = ImageDraw.Draw(canvas)
     line_h = int(font.size * 1.18)
     pad = int(font.size * 0.18)
@@ -175,8 +250,9 @@ def _draw_text(canvas: Image.Image, slide: Slide, layout) -> None:
         draw.text((x + pad, y + line_h / 2), line, font=font, fill=slide.text_color, anchor="lm")
         y += line_h + pad
 
-    if slide.subline:
-        sub_w = draw.textlength(slide.subline, font=sub_font)
-        box_h = int(sub_font.size * 1.5)
+    box_h = int(sub_font.size * 1.5)
+    for line in sub_lines:
+        sub_w = draw.textlength(line, font=sub_font)
         draw.rectangle([x, y, x + sub_w + 2 * pad, y + box_h], fill=(20, 20, 20, 230))
-        draw.text((x + pad, y + box_h / 2), slide.subline, font=sub_font, fill="#FFFFFF", anchor="lm")
+        draw.text((x + pad, y + box_h / 2), line, font=sub_font, fill="#FFFFFF", anchor="lm")
+        y += box_h

@@ -12,6 +12,8 @@ can be resumed from any phase after a crash or after a human edits a JSON file.
 """
 
 import json
+import os
+import socket
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +29,8 @@ _lock = threading.Lock()
 
 
 def now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    # With the UTC offset, so times compare correctly with balances read in local time
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
 class Run:
@@ -49,7 +52,7 @@ class Run:
             "phases": {p: {"status": "pending"} for p in PHASES},
             "notes": {},
             "usage": {"claude_input_tokens": 0, "claude_output_tokens": 0, "claude_cache_read_tokens": 0,
-                      "images": 0, "cost_usd": 0.0},
+                      "images": 0, "claude_cost_usd": 0.0, "gemini_cost_usd": 0.0, "cost_usd": 0.0},
             "log": [],
         })
         return run
@@ -86,6 +89,9 @@ class Run:
             entry.update(extra)
             if status == "running":
                 entry["started"] = now()
+                # Which process runs the phase (the CLI and the API run in different containers)
+                entry["worker"] = {"host": socket.gethostname(), "pid": os.getpid()}
+            if status in ("running", "done"):
                 entry.pop("error", None)
             if status in ("done", "failed"):
                 entry["finished"] = now()
@@ -99,6 +105,10 @@ class Run:
         def apply(s):
             for key, value in delta.items():
                 s["usage"][key] = round(s["usage"].get(key, 0) + value, 6)
+            # Timestamped costs, so spending can be counted from the moment a balance was read
+            costs = {k: v for k, v in delta.items() if k in ("claude_cost_usd", "gemini_cost_usd")}
+            if costs:
+                s.setdefault("cost_events", []).append({"at": now(), **costs})
         self.update(apply)
 
     # ------------------------------------------------------------ phase outputs

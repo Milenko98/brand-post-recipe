@@ -16,8 +16,10 @@ Scene prompt rules:
 - Match the brand's photography / graphic style from the analysis. Avoid generic stock-photo looks.
 - People are optional. If used, adults only (clearly 25+), no faces in close-up, nobody drinking in a way that looks excessive.
 
+Language: write `strategy`, `title`, `goal`, `concept`, `rationale`, slide `purpose`, headlines, sublines and captions in Croatian. Only `scene_prompt` is in English (the image model works best in English).
+
 Copy rules (Croatian):
 - Write captions in Croatian, in the brand's tone of voice from the analysis (humor, wordplay, emoji usage similar to the real captions).
 - Use only verified facts (ABV, volume, style, flavor notes from the label or website). Never invent prices, awards, discounts, events, dates or quotes of real people.
-- Headlines: max ~6 words, punchy, can be a question or wordplay.
+- Headlines: max ~6 words, punchy, can be a question or wordplay. Sublines: max ~45 characters. No emoji in headlines or sublines (the poster fonts cannot draw them); emoji belong in captions.
 - Responsible alcohol communication: no claims about health or performance, no appeal to minors, no encouragement of excessive drinking.

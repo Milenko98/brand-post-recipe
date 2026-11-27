@@ -15,4 +15,5 @@ Rules:
 - Product data (style, ABV, volume, flavor) must come from the label image or the website. If something is not available, write "unknown" - never guess numbers.
 - Pick colors by looking at the images. Give real hex values (labels, posters, recurring backgrounds), not generic ones.
 - If a website page failed to load or contained no useful text, list it in `unavailable_sources` and say what that means for the analysis.
-- Write the analysis in English, but quote captions verbatim in Croatian in `tone_examples`.
+- Write every field of the analysis in Croatian (the language of the client and the user interface). Quote captions verbatim in `tone_examples`. Keep hex codes, file names and URLs as they are.
+- In `facts`, list every product detail from the website separately (style, ABV, IBU, hops, flavor and aroma notes), because later QA accepts only claims listed there.

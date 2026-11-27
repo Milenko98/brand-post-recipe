@@ -11,3 +11,6 @@ frontend/dist/
 # Instagram content of the demo brand (copyright) - kept locally, not published
 inputs/zmajska/posts/
 inputs/zmajska/captions.txt
+
+# Package for the job application (built locally)
+submission/

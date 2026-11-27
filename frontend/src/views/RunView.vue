@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, PHASE_LABELS } from '../api';
 import StatusDot from '../components/StatusDot.vue';
@@ -37,8 +37,8 @@ async function load() {
         error.value = e.message;
     }
     clearTimeout(timer);
-    // Poll while a phase is running in the background
-    if (run.value?.busy) timer = setTimeout(load, 2000);
+    // Poll fast while a phase is running, slowly otherwise: work can also be started from the CLI
+    timer = setTimeout(load, run.value?.busy ? 2000 : 6000);
 }
 
 async function act(promise) {
@@ -53,21 +53,42 @@ async function act(promise) {
 watch(() => props.id, load, { immediate: true });
 onUnmounted(() => clearTimeout(timer));
 
+// On mobile the phases are a horizontal strip: keep the selected one in view
+const nav = ref(null);
+watch([selected, nav], async () => {
+    await nextTick();
+    const strip = nav.value;
+    const tab = strip?.querySelector('[aria-current="page"]');
+    if (tab && strip.scrollWidth > strip.clientWidth) {
+        strip.scrollLeft = tab.offsetLeft - (strip.clientWidth - tab.offsetWidth) / 2;
+    }
+});
+
+const usd = (v) => (v === undefined ? '–' : `$${v.toFixed(2)}`);
+const num = (v) => v.toLocaleString('hr-HR');
+
 const select = (phase) => router.push(`/runs/${props.id}/${phase}`);
 </script>
 
 <template>
-  <div v-if="run">
-    <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
-      <div>
+  <!-- Desktop: header and phase menu stay put, only the phase content scrolls.
+       Mobile: the page scrolls normally and the phases are a sticky tab strip. -->
+  <div v-if="run" class="lg:flex lg:h-[calc(100dvh-8rem)] lg:flex-col">
+    <div class="mb-4 flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-4">
+      <div class="min-w-0">
         <RouterLink to="/" class="text-sm text-stone-500 hover:text-dragon">← Sva pokretanja</RouterLink>
-        <h1 class="font-mono text-lg">{{ run.id }}</h1>
-        <p class="text-xs text-stone-500">
-          Trošak: ${{ run.usage.cost_usd.toFixed(2) }} · Claude {{ run.usage.claude_input_tokens.toLocaleString() }} /
-          {{ run.usage.claude_output_tokens.toLocaleString() }} tokena · {{ run.usage.images }} generiranih slika
-        </p>
+        <h1 class="break-all font-mono text-base sm:text-lg">{{ run.id }}</h1>
+        <dl class="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-sm text-stone-600">
+          <div><dt class="inline font-semibold">Ukupni trošak:</dt> <dd class="ml-1 inline">{{ usd(run.usage.cost_usd) }}</dd></div>
+          <div title="Ulazni tokeni: sve što je poslano Claudeu (brif, web tekstovi, slike). Izlazni: ono što je Claude napisao, uključujući razmišljanje.">
+            <dt class="inline font-semibold">Claude:</dt>
+            <dd class="ml-1 inline">{{ usd(run.usage.claude_cost_usd) }} · {{ num(run.usage.claude_input_tokens) }} ulaznih
+              + {{ num(run.usage.claude_output_tokens) }} izlaznih tokena</dd>
+          </div>
+          <div><dt class="inline font-semibold">Gemini:</dt> <dd class="ml-1 inline">{{ usd(run.usage.gemini_cost_usd) }} · {{ run.usage.images }} slika</dd></div>
+        </dl>
       </div>
-      <button class="btn-primary" :disabled="run.busy || run.phases.deliver.status === 'done'"
+      <button class="btn-primary w-full justify-center sm:w-auto" :disabled="run.busy || run.phases.deliver.status === 'done'"
               @click="act(api.continueRun(run.id))">
         Pokreni sve preostale faze
       </button>
@@ -75,11 +96,13 @@ const select = (phase) => router.push(`/runs/${props.id}/${phase}`);
 
     <p v-if="error" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
 
-    <div class="grid gap-6 lg:grid-cols-[220px_1fr]">
-      <nav class="space-y-1">
+    <div class="grid grid-cols-[minmax(0,1fr)] gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
+      <nav ref="nav" class="sticky top-16 z-20 -mx-4 flex gap-1 overflow-x-auto bg-stone-100 px-4 py-2 sm:-mx-6 sm:px-6
+                  lg:static lg:mx-0 lg:block lg:space-y-1 lg:self-start lg:p-0">
         <button v-for="(p, i) in phases" :key="p" type="button"
-                class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm"
+                class="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm whitespace-nowrap lg:w-full lg:gap-3"
                 :class="selected === p ? 'bg-stone-900 text-white' : 'hover:bg-white'"
+                :aria-current="selected === p ? 'page' : undefined"
                 @click="select(p)">
           <StatusDot :status="run.phases[p].status" />
           <span class="text-xs opacity-60">{{ i + 1 }}</span>
@@ -87,7 +110,7 @@ const select = (phase) => router.push(`/runs/${props.id}/${phase}`);
         </button>
       </nav>
 
-      <section class="space-y-4">
+      <section class="min-w-0 space-y-4 pb-6 lg:min-h-0 lg:overflow-y-auto lg:pr-2">
         <PhaseActions :run="run" :phase="selected"
                       @run="(note) => act(api.runPhase(run.id, selected, note))" />
         <component :is="PANELS[selected]" v-if="run.outputs[selected]" :run="run"

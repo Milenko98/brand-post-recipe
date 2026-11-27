@@ -18,6 +18,15 @@ const checks = { product_accurate: 'proizvod', looks_natural: 'prirodno', brand_
         Ponovno generirani slajdovi: {{ post.regenerated_slides.join(', ') }}
       </p>
 
+      <div v-if="post.caption_edited_by_human" class="rounded-lg bg-sky-50 p-3 text-sm text-sky-900">
+        <p class="font-semibold">Opis je ručno uređen, pa ga provjera nije mijenjala.</p>
+        <p class="mt-1">Primjedbe provjere su ispod; odluka je tvoja.</p>
+        <details v-if="post.suggested_caption" class="mt-2">
+          <summary class="cursor-pointer">Prijedlog provjere</summary>
+          <p class="mt-1 whitespace-pre-line text-stone-700">{{ post.suggested_caption }}</p>
+        </details>
+      </div>
+
       <div v-for="(round, r) in post.rounds" :key="r" class="rounded-lg bg-stone-50 p-3">
         <p class="mb-2 text-xs font-semibold uppercase text-stone-500">Krug {{ r + 1 }}</p>
         <div v-for="s in round.slides" :key="s.slide" class="mb-2 text-sm">

@@ -3,12 +3,17 @@ import { ref, watch } from 'vue';
 import { api } from '../api';
 
 const props = defineProps({ run: Object, data: Object });
+
+const BACKGROUND = { photo: 'fotografija', graphic: 'grafika' };
+const POSITION = { left: 'lijevo', center: 'sredina', right: 'desno' };
 const emit = defineEmits(['saved']);
 
 // Local editable copy of the plan; saving it invalidates image generation
 const plan = ref(null);
 const dirty = ref(false);
 const error = ref('');
+const saving = ref(false);
+const saved = ref('');
 
 watch(() => props.data, (d) => {
     plan.value = JSON.parse(JSON.stringify(d));
@@ -17,12 +22,21 @@ watch(() => props.data, (d) => {
 
 async function save() {
     error.value = '';
+    saving.value = true;
     try {
-        await api.savePlan(props.run.id, plan.value);
-        dirty.value = false;
+        const result = await api.savePlan(props.run.id, plan.value);
+        saved.value = result.recomposed
+            ? 'Spremljeno. Slajdovi se ponovno slažu iz postojećih pozadina (bez troška), nakon toga pokreni provjeru.'
+            : props.run.phases.create.status === 'done'
+                ? 'Spremljeno. Promijenjen je opis scene, pa izradu slika treba pokrenuti ponovno.'
+                : 'Spremljeno. Izrada slika koristit će izmijenjeni plan.';
         emit('saved');
+        dirty.value = false;
+        setTimeout(() => (saved.value = ''), 6000);
     } catch (e) {
         error.value = e.message;
+    } finally {
+        saving.value = false;
     }
 }
 </script>
@@ -53,8 +67,9 @@ async function save() {
           <input v-model="s.headline" class="input mb-2" />
           <label class="label">Podnaslov</label>
           <input v-model="s.subline" class="input mb-2" />
-          <label class="label">Scena ({{ s.background }}) · proizvod: {{ s.product || '—' }}, {{ s.product_position }}</label>
-          <textarea v-model="s.scene_prompt" class="input h-28 font-mono text-[11px]" />
+          <label class="label">Scena ({{ BACKGROUND[s.background] }}) · proizvod: {{ s.product || '—' }}, {{ POSITION[s.product_position] }}</label>
+          <p class="mb-1 text-xs text-stone-500">Opis scene za generator slika ostaje na engleskom jer ga model tako najbolje razumije.</p>
+          <textarea v-model="s.scene_prompt" class="input h-28 font-mono text-xs" />
         </div>
       </div>
 
@@ -65,9 +80,15 @@ async function save() {
       </div>
     </div>
 
-    <div v-if="dirty || error" class="sticky bottom-4 card flex items-center justify-between gap-4 ring-2 ring-dragon">
-      <span class="text-sm">{{ error || 'Imaš nespremljene izmjene plana. Spremanje poništava izradu i provjeru.' }}</span>
-      <button class="btn-primary" :disabled="run.busy" @click="save">Spremi izmjene</button>
+    <div v-if="saved" class="sticky bottom-4 card flex items-center gap-3 bg-emerald-50 text-sm text-emerald-800 ring-2 ring-emerald-500">
+      ✓ {{ saved }}
+    </div>
+    <div v-else-if="dirty || error" class="sticky bottom-4 card flex items-center justify-between gap-4 ring-2 ring-dragon">
+      <span class="text-sm">{{ error || 'Imaš nespremljene izmjene plana. Promjene teksta i opisa su besplatne (slajdovi se ponovno slože iz postojećih scena); promjena opisa scene traži nove slike.' }}</span>
+      <button class="btn-primary" :disabled="run.busy || saving" @click="save">
+        <span v-if="saving" class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+        {{ saving ? 'Spremam…' : 'Spremi izmjene' }}
+      </button>
     </div>
   </div>
 </template>

@@ -39,6 +39,15 @@ def wait_idle(client, run_id, timeout=30):
 def test_health_reports_missing_keys(client):
     data = client.get("/api/health").json()
     assert data["claude"] is False and data["phases"][0] == "brief"
+    assert data["budget"]["claude"]["remaining"] is None  # no balance set
+
+
+def test_credit_is_entered_in_the_ui(client):
+    data = client.put("/api/credit/claude", json={"balance": 2.26}).json()
+    assert data["budget"]["claude"]["remaining"] == 2.26 and data["budget"]["claude"]["balance_at"]
+    assert client.put("/api/credit/claude", json={"balance": -1}).status_code == 422
+    assert client.put("/api/credit/openai", json={"balance": 1}).status_code == 404
+    assert client.put("/api/credit/claude", json={"balance": None}).json()["budget"]["claude"]["remaining"] is None
 
 
 def test_example_run_through_all_phases(client):
@@ -65,20 +74,40 @@ def test_cannot_skip_phases_or_escape_run_folder(client):
     assert client.get("/api/runs/nope").status_code == 404
 
 
-def test_edit_plan_invalidates_later_phases(client):
+def test_text_edit_reuses_scenes_and_scene_edit_regenerates(client):
     run_id = client.post("/api/runs/example").json()["id"]
     wait_idle(client, run_id)
     client.post(f"/api/runs/{run_id}/continue")
-    wait_idle(client, run_id)
+    images_before = wait_idle(client, run_id)["usage"]["images"]
 
+    # Headline and caption edits: slides are re-composited from the saved scenes, no new images
     edited = plan().model_dump()
     edited["posts"][0]["caption"] = "Ručno uređeno"
-    data = client.put(f"/api/runs/{run_id}/plan", json=edited).json()
+    edited["posts"][0]["slides"][0]["headline"] = "Novi naslov"
+    response = client.put(f"/api/runs/{run_id}/plan", json=edited).json()
+    assert response["recomposed"] is True
+    data = wait_idle(client, run_id)
     assert data["outputs"]["plan"]["posts"][0]["caption"] == "Ručno uređeno"
-    assert data["phases"]["create"]["status"] == "pending"
+    assert data["phases"]["create"]["status"] == "done"
+    assert data["phases"]["review"]["status"] == "pending"
+    assert data["usage"]["images"] == images_before
+
+    # A new scene prompt needs a new image
+    edited["posts"][0]["slides"][0]["scene_prompt"] = "A rooftop terrace at sunset"
+    response = client.put(f"/api/runs/{run_id}/plan", json=edited).json()
+    assert response["recomposed"] is False and response["phases"]["create"]["status"] == "pending"
 
     edited["posts"] = edited["posts"][:2]
     assert client.put(f"/api/runs/{run_id}/plan", json=edited).status_code == 422
+
+
+def test_usage_is_split_between_claude_and_gemini(client):
+    run_id = client.post("/api/runs/example").json()["id"]
+    wait_idle(client, run_id)
+    client.post(f"/api/runs/{run_id}/continue")
+    usage = wait_idle(client, run_id)["usage"]
+    assert usage["gemini_cost_usd"] > 0
+    assert abs(usage["claude_cost_usd"] + usage["gemini_cost_usd"] - usage["cost_usd"]) < 1e-6
 
 
 def test_create_run_from_uploads(client):
@@ -105,3 +134,24 @@ def test_upload_requires_one_photo_per_product(client):
     files = [("logo", ("l.png", b"x", "image/png")), ("products", ("p.png", b"x", "image/png"))]
     response = client.post("/api/runs", data={"brief": json.dumps(brief)}, files=files)
     assert response.status_code == 422
+
+
+def test_only_phases_of_this_container_are_marked_interrupted(client, settings):
+    import socket
+
+    from recipe.store import Run
+
+    run_id = client.post("/api/runs/example").json()["id"]
+    wait_idle(client, run_id)
+    run = Run.load(settings.runs_dir, run_id)
+
+    # Running in the CLI container: must stay "running"
+    run.set_phase("analysis", "running")
+    run.update(lambda s: s["phases"]["analysis"].__setitem__("worker", {"host": "cli-container", "pid": 1}))
+    data = client.get(f"/api/runs/{run_id}").json()
+    assert data["phases"]["analysis"]["status"] == "running" and data["busy"]  # the UI keeps refreshing
+
+    # Started here by a process that no longer exists (server restart): marked failed
+    run.update(lambda s: s["phases"]["analysis"].__setitem__("worker", {"host": socket.gethostname(), "pid": 999999}))
+    phase = client.get(f"/api/runs/{run_id}").json()["phases"]["analysis"]
+    assert phase["status"] == "failed" and "Interrupted" in phase["error"]
