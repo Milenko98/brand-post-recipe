@@ -12,6 +12,8 @@ const emit = defineEmits(['saved']);
 const plan = ref(null);
 const dirty = ref(false);
 const error = ref('');
+const saving = ref(false);
+const saved = ref('');
 
 watch(() => props.data, (d) => {
     plan.value = JSON.parse(JSON.stringify(d));
@@ -20,12 +22,21 @@ watch(() => props.data, (d) => {
 
 async function save() {
     error.value = '';
+    saving.value = true;
     try {
-        await api.savePlan(props.run.id, plan.value);
-        dirty.value = false;
+        const result = await api.savePlan(props.run.id, plan.value);
+        saved.value = result.recomposed
+            ? 'Spremljeno. Slajdovi se ponovno slažu iz postojećih pozadina (bez troška), nakon toga pokreni provjeru.'
+            : props.run.phases.create.status === 'done'
+                ? 'Spremljeno. Promijenjen je opis scene, pa izradu slika treba pokrenuti ponovno.'
+                : 'Spremljeno. Izrada slika koristit će izmijenjeni plan.';
         emit('saved');
+        dirty.value = false;
+        setTimeout(() => (saved.value = ''), 6000);
     } catch (e) {
         error.value = e.message;
+    } finally {
+        saving.value = false;
     }
 }
 </script>
@@ -69,9 +80,15 @@ async function save() {
       </div>
     </div>
 
-    <div v-if="dirty || error" class="sticky bottom-4 card flex items-center justify-between gap-4 ring-2 ring-dragon">
+    <div v-if="saved" class="sticky bottom-4 card flex items-center gap-3 bg-emerald-50 text-sm text-emerald-800 ring-2 ring-emerald-500">
+      ✓ {{ saved }}
+    </div>
+    <div v-else-if="dirty || error" class="sticky bottom-4 card flex items-center justify-between gap-4 ring-2 ring-dragon">
       <span class="text-sm">{{ error || 'Imaš nespremljene izmjene plana. Promjene teksta i opisa su besplatne (slajdovi se ponovno slože iz postojećih scena); promjena opisa scene traži nove slike.' }}</span>
-      <button class="btn-primary" :disabled="run.busy" @click="save">Spremi izmjene</button>
+      <button class="btn-primary" :disabled="run.busy || saving" @click="save">
+        <span v-if="saving" class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+        {{ saving ? 'Spremam…' : 'Spremi izmjene' }}
+      </button>
     </div>
   </div>
 </template>

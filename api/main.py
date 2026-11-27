@@ -221,6 +221,10 @@ def edit_plan(run_id: str, plan: ContentPlan):
     if len(plan.posts) != 3:
         raise HTTPException(422, "The plan must contain exactly 3 posts")
     old = run.read("plan", ContentPlan)
+    # Keep the AI's original plan next to the edited one, so the human changes can be compared later
+    original = run.path / "03_plan.ai.json"
+    if not original.exists():
+        original.write_text(run.phase_file("plan").read_text())
     run.save("plan", plan)
     run.log("Plan edited by a human")
     if run.state["phases"]["create"]["status"] == "done" and scenes_still_valid(old, plan):

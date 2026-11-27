@@ -155,6 +155,7 @@ def phase_analysis(run: Run, services: Services, note: str | None) -> BrandAnaly
 
 
 def phase_plan(run: Run, services: Services, note: str | None) -> ContentPlan:
+    (run.path / "03_plan.ai.json").unlink(missing_ok=True)  # a new AI plan replaces any edited one
     b = run.read("brief", BriefResult)
     analysis = run.read("analysis", BrandAnalysis)
     inputs = run.path / "inputs"
@@ -312,6 +313,9 @@ def phase_deliver(run: Run, services: Services, note: str | None) -> DeliverResu
         for phase in PHASES[:-1]:
             if run.has(phase):
                 z.write(run.phase_file(phase), f"phases/{run.phase_file(phase).name}")
+        original_plan = run.path / "03_plan.ai.json"
+        if original_plan.exists():  # the AI's plan before the human edit
+            z.write(original_plan, f"phases/{original_plan.name}")
 
     run.log(f"Delivered to {final}")
     return DeliverResult(folder=run.rel(final), zip_file=run.rel(zip_path), posts=posts_out)

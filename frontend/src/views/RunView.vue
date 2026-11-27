@@ -56,20 +56,13 @@ onUnmounted(() => clearTimeout(timer));
 const usd = (v) => (v === undefined ? '–' : `$${v.toFixed(2)}`);
 const num = (v) => v.toLocaleString('hr-HR');
 
-// The phase menu sticks right under the sticky run header, whose height depends on the window width
-const head = ref(null);
-const headHeight = ref(0);
-const resize = new ResizeObserver(([entry]) => (headHeight.value = entry.target.offsetHeight));
-watch(head, (el) => el && resize.observe(el));
-onUnmounted(() => resize.disconnect());
-
 const select = (phase) => router.push(`/runs/${props.id}/${phase}`);
 </script>
 
 <template>
-  <div v-if="run">
-    <!-- Stays under the app bar while the phase content scrolls -->
-    <div ref="head" class="sticky top-16 z-20 -mx-6 -mt-8 mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 bg-stone-100 px-6 pt-6 pb-4">
+  <!-- App-like layout: header and phase menu stay put, only the phase content on the right scrolls -->
+  <div v-if="run" class="flex h-[calc(100dvh-8rem)] flex-col">
+    <div class="mb-4 flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-4">
       <div>
         <RouterLink to="/" class="text-sm text-stone-500 hover:text-dragon">← Sva pokretanja</RouterLink>
         <h1 class="font-mono text-lg">{{ run.id }}</h1>
@@ -91,8 +84,8 @@ const select = (phase) => router.push(`/runs/${props.id}/${phase}`);
 
     <p v-if="error" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{{ error }}</p>
 
-    <div class="grid gap-6 lg:grid-cols-[220px_1fr]">
-      <nav class="space-y-1 self-start lg:sticky" :style="{ top: `calc(4rem + ${headHeight}px + 1rem)` }">
+    <div class="grid min-h-0 flex-1 gap-6 lg:grid-cols-[220px_1fr]">
+      <nav class="space-y-1 self-start">
         <button v-for="(p, i) in phases" :key="p" type="button"
                 class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm"
                 :class="selected === p ? 'bg-stone-900 text-white' : 'hover:bg-white'"
@@ -103,7 +96,7 @@ const select = (phase) => router.push(`/runs/${props.id}/${phase}`);
         </button>
       </nav>
 
-      <section class="space-y-4">
+      <section class="min-h-0 space-y-4 overflow-y-auto pr-2 pb-6">
         <PhaseActions :run="run" :phase="selected"
                       @run="(note) => act(api.runPhase(run.id, selected, note))" />
         <component :is="PANELS[selected]" v-if="run.outputs[selected]" :run="run"
