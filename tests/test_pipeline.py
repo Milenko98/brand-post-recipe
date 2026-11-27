@@ -210,3 +210,8 @@ def test_qa_only_suggests_changes_to_a_human_edited_caption(settings, example_br
     assert posts[0].caption_edited_by_human and posts[0].final_caption == "Blago kiselkasto pivo."
     assert posts[0].suggested_caption == "Kiselo pivo."
     assert not posts[1].caption_edited_by_human and posts[1].final_caption == "Kiselo pivo."  # AI caption: corrected
+
+
+def test_runs_started_in_the_same_second_get_unique_ids(settings, example_brief):
+    first, second = start_run(example_brief, settings), start_run(example_brief, settings)
+    assert first.id != second.id and first.path.exists() and second.path.exists()

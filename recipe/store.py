@@ -42,9 +42,18 @@ class Run:
 
     @classmethod
     def create(cls, runs_dir: Path, slug: str) -> "Run":
-        run_id = f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
-        path = runs_dir / run_id
-        (path / "inputs").mkdir(parents=True)
+        base = f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
+        # Two runs of the same brand started in the same second get a suffix instead of clashing
+        for n in range(1, 100):
+            run_id = base if n == 1 else f"{base}-{n}"
+            path = runs_dir / run_id
+            try:
+                (path / "inputs").mkdir(parents=True)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise RuntimeError(f"Could not create a unique run folder for {base}")
         run = cls(path)
         run._write_state({
             "id": run_id,

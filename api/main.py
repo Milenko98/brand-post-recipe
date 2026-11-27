@@ -29,7 +29,7 @@ settings = Settings()
 
 EXAMPLE_BRIEF = ROOT / "inputs" / "zmajska" / "brief.yaml"
 
-_active: set[str] = set()  # runs with a phase currently executing in this process
+_active: set[str] = set()  # run folders with work currently executing in this process
 _active_lock = threading.Lock()
 
 
@@ -44,11 +44,19 @@ def load_run(run_id: str) -> Run:
         raise HTTPException(404, f"Run '{run_id}' not found")
 
 
+def _key(run: Run) -> str:
+    return str(run.path.resolve())  # the folder, not the id: ids are only unique within one runs directory
+
+
+def is_active(run: Run) -> bool:
+    return _key(run) in _active
+
+
 def run_in_background(run: Run, fn) -> None:
     with _active_lock:
-        if run.id in _active:
+        if _key(run) in _active:
             raise HTTPException(409, "A phase of this run is already running")
-        _active.add(run.id)
+        _active.add(_key(run))
 
     def target():
         try:
@@ -57,7 +65,7 @@ def run_in_background(run: Run, fn) -> None:
             run.log(f"Failed: {type(e).__name__}: {e}")  # phase errors are also stored by run_phase
         finally:
             with _active_lock:
-                _active.discard(run.id)
+                _active.discard(_key(run))
 
     threading.Thread(target=target, daemon=True).start()
 
@@ -78,7 +86,7 @@ def run_payload(run: Run) -> dict:
     state = run.state
     # A phase this container started that has no live worker any more was cut off by a server restart.
     # Phases run by the CLI (another container) are left alone.
-    if run.id not in _active:
+    if not is_active(run):
         for phase, info in state["phases"].items():
             if info["status"] == "running" and _worker_is_dead(info.get("worker")):
                 run.set_phase(phase, "failed", error="Interrupted (server restarted) - run the phase again")
@@ -90,7 +98,7 @@ def run_payload(run: Run) -> dict:
             outputs[phase] = json.loads(run.phase_file(phase).read_text())
     # Busy also when a phase runs in another process (the CLI container), so the UI keeps refreshing
     running = any(info["status"] == "running" for info in state["phases"].values())
-    return {**state, "busy": run.id in _active or running, "outputs": outputs}
+    return {**state, "busy": is_active(run) or running, "outputs": outputs}
 
 
 # ---------------------------------------------------------------- endpoints
@@ -235,7 +243,7 @@ def edit_plan(run_id: str, plan: ContentPlan):
     slides are re-composited for free. A changed scene prompt invalidates create and later phases.
     """
     run = load_run(run_id)
-    if run.id in _active:
+    if is_active(run):
         raise HTTPException(409, "Wait until the current phase finishes")
     if run.state["phases"]["plan"]["status"] != "done":
         raise HTTPException(409, "The plan phase has not finished yet")
