@@ -38,3 +38,29 @@ def test_long_headline_with_croatian_letters_fits():
 def test_slide_without_product():
     out = compose_slide(scene((200, 100, 30)), slide(product=None), None, LOGO)
     assert out.getpixel((540, 1100)) == (200, 100, 30)
+
+
+def test_packshot_floor_shadow_becomes_transparent():
+    from recipe.compose import _clean_product
+
+    product = Image.new("RGBA", (100, 300), (0, 0, 0, 0))
+    product.paste((30, 20, 10, 255), (20, 0, 80, 285))  # dark bottle body
+    product.paste((240, 240, 240, 255), (5, 285, 95, 300))  # white floor with light shadow under it
+    cleaned = _clean_product(product)
+
+    r, g, b, a = cleaned.getpixel((50, 295))
+    assert a < 30 and (r, g, b) == (0, 0, 0)  # floor became a faint transparent shadow
+    assert cleaned.getpixel((50, 100)) == (30, 20, 10, 255)  # the product itself is untouched
+
+
+def test_headline_never_covers_the_product():
+    from PIL import ImageDraw
+    from recipe.compose import _text_layout
+
+    color = (42, 166, 207)
+    s = slide(product="Pils", product_position="center", text_position="top", product_scale=0.8,
+              headline="Neiskusni - pozor! Ovo je jako dugacak naslov", subline="IBU 70")
+    img = compose_slide(Image.new("RGB", (1080, 1350), color), s, INPUTS / "products" / "pils.png", INPUTS / "logo.png")
+    text_bottom = _text_layout(Image.new("RGBA", (1080, 1350)), s, True)[1]
+    # The bottle is shrunk, so the strip right under the text is still the plain scene
+    assert all(img.getpixel((540, y)) == color for y in range(text_bottom + 2, text_bottom + 20))

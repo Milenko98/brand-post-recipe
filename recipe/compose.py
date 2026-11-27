@@ -29,7 +29,8 @@ def compose_slide(scene: Image.Image, slide: Slide, product_image: Path | None, 
     text_box = _text_layout(canvas, slide, has_product)
 
     if has_product:
-        _place_product(canvas, Image.open(product_image), slide)
+        text_bottom = text_box[1] if slide.text_position == "top" and (slide.headline or slide.subline) else 0
+        _place_product(canvas, Image.open(product_image), slide, text_bottom)
 
     _place_logo(canvas, Image.open(logo), slide)
 
@@ -41,13 +42,16 @@ def compose_slide(scene: Image.Image, slide: Slide, product_image: Path | None, 
 
 # ---------------------------------------------------------------- product
 
-def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide) -> None:
+def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide, text_bottom: int = 0) -> None:
     W, H = canvas.size
-    product = product.convert("RGBA")
-    product = product.crop(product.getbbox())  # trim transparent padding
+    product = _clean_product(product)
 
+    bottom = H * 0.93  # always stands on the surface at the bottom of the scene
     scale = min(max(slide.product_scale, 0.3), 0.8)
     height = int(H * scale)
+    if text_bottom:
+        # Never let the headline cover the product: shrink it to fit under the text
+        height = max(min(height, int(bottom - text_bottom - H * 0.03)), int(H * 0.25))
     width = int(product.width * height / product.height)
     product = product.resize((width, height), Image.Resampling.LANCZOS)
 
@@ -56,7 +60,6 @@ def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide) -> N
     product = _adjust_brightness(product, 0.9 + 0.2 * scene_luma)
 
     center_x = {"left": 0.3, "center": 0.5, "right": 0.7}[slide.product_position] * W
-    bottom = H * 0.93  # always stands on the surface at the bottom of the scene
     x = int(center_x - width / 2)
     y = int(bottom - height)
 
@@ -72,6 +75,52 @@ def _place_product(canvas: Image.Image, product: Image.Image, slide: Slide) -> N
 
     canvas.alpha_composite(shadow)
     canvas.alpha_composite(product, (x, y))
+
+
+def _clean_product(product: Image.Image) -> Image.Image:
+    """Trim transparent padding and turn the packshot's baked-in floor shadow into a transparent one.
+
+    Shop packshots are photographed on white with a soft grey shadow under the base. Pasted on a
+    scene, that shows as a white oval. Light pixels around the base become black with alpha
+    proportional to their darkness, so the scene shows through.
+    """
+    product = product.convert("RGBA")
+    product = product.crop(product.getbbox())
+    pixels = product.load()
+    w, h = product.size
+    top = int(h * 0.9)
+
+    def to_shadow(x: int, y: int) -> None:
+        r, g, b, a = pixels[x, y]
+        pixels[x, y] = (0, 0, 0, min(a, (255 - (r + g + b) // 3) * 2 // 3))
+
+    def row_mean(y: int) -> float:
+        values = [sum(pixels[x, y][:3]) / 3 for x in range(w) if pixels[x, y][3] > 128]
+        return sum(values) / len(values) if values else 255
+
+    # The darkest row near the bottom is where the product meets the floor
+    contact = min(range(top, h), key=row_mean)
+
+    # Below it there is only floor and shadow
+    for y in range(contact + 1, h):
+        for x in range(w):
+            if pixels[x, y][3] and min(pixels[x, y][:3]) > 120:
+                to_shadow(x, y)
+
+    # Beside the base, clear light floor pixels reachable from the transparent background
+    stack = [(x, y) for y in range(top, contact + 1) for x in (0, w - 1)]
+    seen = set()
+    while stack:
+        x, y = stack.pop()
+        if (x, y) in seen or not (0 <= x < w and top <= y <= contact):
+            continue
+        seen.add((x, y))
+        r, g, b, a = pixels[x, y]
+        if a < 20 or min(r, g, b) > 200:
+            if a >= 20:
+                to_shadow(x, y)
+            stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+    return product
 
 
 def _adjust_brightness(img: Image.Image, factor: float) -> Image.Image:
@@ -127,6 +176,13 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[st
             current = word
     if current:
         lines.append(current)
+    # Move a dangling short word ("I", "U", "DA") to the start of the next line when it still fits
+    for i in range(len(lines) - 1):
+        head, _, last = lines[i].rpartition(" ")
+        if head and len(last) <= 2 and last.isalpha():
+            candidate = f"{last} {lines[i + 1]}"
+            if draw.textlength(candidate, font=font) <= max_width:
+                lines[i], lines[i + 1] = head, candidate
     return lines
 
 
